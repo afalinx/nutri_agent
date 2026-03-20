@@ -1,0 +1,90 @@
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, status
+import bcrypt as _bcrypt
+from loguru import logger
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.schemas import UserCreate, UserResponse, UserUpdate
+from app.core.skills.calculator import calculate_target_calories
+from app.db.models import User
+from app.db.session import get_db
+
+router = APIRouter(prefix="/api/users", tags=["Users"])
+
+
+@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+async def create_user(data: UserCreate, db: AsyncSession = Depends(get_db)):
+    existing = await db.execute(select(User).where(User.email == data.email))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    target_cal = calculate_target_calories(
+        weight_kg=data.weight_kg,
+        height_cm=data.height_cm,
+        age=data.age,
+        gender=data.gender,
+        activity_level=data.activity_level,
+        goal=data.goal,
+    )
+
+    user = User(
+        email=data.email,
+        password_hash=_bcrypt.hashpw(data.password.encode(), _bcrypt.gensalt()).decode(),
+        age=data.age,
+        weight_kg=data.weight_kg,
+        height_cm=data.height_cm,
+        gender=data.gender,
+        activity_level=data.activity_level,
+        goal=data.goal,
+        allergies=data.allergies,
+        target_calories=target_cal,
+    )
+
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
+    logger.info("User created: {} (target_calories={})", user.email, target_cal)
+    return user
+
+
+@router.get("/{user_id}", response_model=UserResponse)
+async def get_user(user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@router.put("/{user_id}", response_model=UserResponse)
+async def update_user(
+    user_id: uuid.UUID,
+    data: UserUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    update_data = data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(user, field, value)
+
+    user.target_calories = calculate_target_calories(
+        weight_kg=user.weight_kg,
+        height_cm=user.height_cm,
+        age=user.age,
+        gender=user.gender,
+        activity_level=user.activity_level,
+        goal=user.goal,
+    )
+
+    await db.commit()
+    await db.refresh(user)
+
+    logger.info("User updated: {} (target_calories={})", user.email, user.target_calories)
+    return user

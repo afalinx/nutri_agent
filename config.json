@@ -1,0 +1,71 @@
+{
+  "project_name": "Оркестратор для автоматизированного поиска и структурирования информации в чатах",
+  
+  "calendar_2023": {
+    "total_days": 365,
+    "holidays_weekends": 118,
+    "pre_holiday_days": 6,
+    "work_shift_hours": 8
+  },
+  
+  "programmer": {
+    "monthly_salary": 60000,
+    "premium_percent": 20,
+    "regional_coefficient_percent": 15,
+    "insurance_contributions_percent": 30.2
+  },
+  
+  "complexity_category": 2,
+  
+  "time_costs": {
+    "pre_project_research": 35,
+    "technical_specification": 18,
+    "implementation": 185,
+    "product_creation": 52,
+    "deployment": 18
+  },
+  
+  "pc": {
+    "price": 30000,
+    "installation_coefficient": 1.1,
+    "power_kw": 0.3,
+    "electricity_price_per_kwh": 5.0,
+    "intensive_use_coefficient": 0.9,
+    "amortization_rate": 0.2
+  },
+  
+  "pc_maintenance": {
+    "daily_hours": 0.5,
+    "monthly_hours": 2,
+    "yearly_hours": 16
+  },
+  
+  "machine_time": {
+    "programming": 40,
+    "debugging": 30,
+    "documentation": 10
+  },
+  
+  "materials": {
+    "internet": {
+      "cost_per_hour": 500,
+      "hours": 10
+    },
+    "paper": {
+      "cost_per_sheet": 2,
+      "sheets": 100
+    }
+  },
+  
+  "profit_norm": 0.25,
+  
+  "efficiency": {
+    "time_saving_multiplier": 3,
+    "accounting_time_before_minutes": 20,
+    "operations_per_month": 60,
+    "employee_salary_per_hour": 120,
+    "reports_time_before_hours": 20,
+    "seller_salary_per_hour": 120
+  }
+}
+

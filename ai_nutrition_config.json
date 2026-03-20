@@ -1,0 +1,70 @@
+{
+  "project_name": "AI-агент рациона питания",
+  
+  "calendar_2023": {
+    "total_days": 365,
+    "holidays_weekends": 118,
+    "pre_holiday_days": 6,
+    "work_shift_hours": 8
+  },
+  
+  "programmer": {
+    "monthly_salary": 80000,
+    "premium_percent": 20,
+    "regional_coefficient_percent": 15,
+    "insurance_contributions_percent": 30.2
+  },
+  
+  "complexity_category": 3,
+  
+  "time_costs": {
+    "pre_project_research": 80,
+    "technical_specification": 40,
+    "implementation": 320,
+    "product_creation": 120,
+    "deployment": 40
+  },
+  
+  "pc": {
+    "price": 45000,
+    "installation_coefficient": 1.1,
+    "power_kw": 0.4,
+    "electricity_price_per_kwh": 5.5,
+    "intensive_use_coefficient": 0.9,
+    "amortization_rate": 0.2
+  },
+  
+  "pc_maintenance": {
+    "daily_hours": 0.5,
+    "monthly_hours": 2,
+    "yearly_hours": 16
+  },
+  
+  "machine_time": {
+    "programming": 180,
+    "debugging": 80,
+    "documentation": 40
+  },
+  
+  "materials": {
+    "internet": {
+      "cost_per_hour": 600,
+      "hours": 50
+    },
+    "paper": {
+      "cost_per_sheet": 2.5,
+      "sheets": 200
+    }
+  },
+  
+  "profit_norm": 0.30,
+  
+  "efficiency": {
+    "time_saving_multiplier": 5,
+    "meal_planning_time_before_minutes": 60,
+    "meal_planning_operations_per_month": 30,
+    "nutritionist_salary_per_hour": 800,
+    "shopping_time_before_hours": 8,
+    "user_time_value_per_hour": 500
+  }
+}
