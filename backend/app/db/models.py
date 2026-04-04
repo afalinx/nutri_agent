@@ -19,6 +19,13 @@ from sqlalchemy.orm import relationship
 
 from app.db.base import Base
 
+DEFAULT_MEAL_SCHEDULE = [
+    {"type": "breakfast", "time": "08:00", "calories_pct": 25},
+    {"type": "lunch", "time": "13:00", "calories_pct": 35},
+    {"type": "dinner", "time": "19:00", "calories_pct": 30},
+    {"type": "snack", "time": "16:00", "calories_pct": 10},
+]
+
 
 class Gender(str, enum.Enum):
     male = "male"
@@ -65,6 +72,7 @@ class User(Base):
     disliked_ingredients = Column(JSONB, default=list)
     diseases = Column(JSONB, default=list)
     target_calories = Column(Integer, nullable=True)
+    meal_schedule = Column(JSONB, default=lambda: DEFAULT_MEAL_SCHEDULE)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -86,6 +94,12 @@ class Recipe(Base):
 
     embedding = Column(Vector(1536), nullable=True)
     tags = Column(ARRAY(String), default=list)
+
+    meal_type = Column(String(50), nullable=True)
+    allergens = Column(ARRAY(String), default=list)
+    ingredients_short = Column(String(500), nullable=True)
+    prep_time_min = Column(Integer, nullable=True)
+    category = Column(String(100), nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 

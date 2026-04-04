@@ -20,39 +20,59 @@ def _run_async(coro):
         loop.close()
 
 
-async def _generate(user_id: str, days: int) -> dict:
+async def _get_user_profile(user_id: str, session) -> dict:
+    """Get user profile from Redis cache or DB."""
+    from app.core import cache
+    from app.db.models import User
+
+    cached = await cache.get_json(f"user:{user_id}")
+    if cached:
+        logger.debug("User profile loaded from cache: {}", user_id)
+        return cached
+
     from sqlalchemy import select
 
+    result = await session.execute(select(User).where(User.id == uuid.UUID(user_id)))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise ValueError(f"User {user_id} not found")
+
+    from app.db.models import DEFAULT_MEAL_SCHEDULE
+
+    profile = {
+        "gender": user.gender.value,
+        "age": user.age,
+        "weight_kg": user.weight_kg,
+        "height_cm": user.height_cm,
+        "goal": user.goal.value,
+        "target_calories": user.target_calories,
+        "allergies": user.allergies or [],
+        "preferences": user.preferences or [],
+        "disliked_ingredients": user.disliked_ingredients or [],
+        "diseases": user.diseases or [],
+        "meal_schedule": user.meal_schedule or DEFAULT_MEAL_SCHEDULE,
+    }
+
+    await cache.set_json(f"user:{user_id}", profile, ttl=600)
+    return profile
+
+
+async def _generate(user_id: str, days: int) -> dict:
+    from app.core import cache
     from app.core.agent.orchestrator import generate_day_plan
     from app.core.rag.retriever import search_recipes
-    from app.db.models import MealPlan, MealPlanStatus, User
+    from app.db.models import MealPlan, MealPlanStatus
     from app.db.session import async_session
 
     async with async_session() as session:
-        result = await session.execute(select(User).where(User.id == uuid.UUID(user_id)))
-        user = result.scalar_one_or_none()
-        if not user:
-            raise ValueError(f"User {user_id} not found")
-
-        user_profile = {
-            "gender": user.gender.value,
-            "age": user.age,
-            "weight_kg": user.weight_kg,
-            "height_cm": user.height_cm,
-            "goal": user.goal.value,
-            "target_calories": user.target_calories,
-            "allergies": user.allergies or [],
-            "preferences": user.preferences or [],
-            "disliked_ingredients": user.disliked_ingredients or [],
-            "diseases": user.diseases or [],
-        }
+        user_profile = await _get_user_profile(user_id, session)
 
         recipes = await search_recipes(
             session,
-            allergies=user.allergies,
-            dislikes=user.disliked_ingredients,
-            preferred_tags=user.preferences,
-            diseases=user.diseases,
+            allergies=user_profile.get("allergies"),
+            dislikes=user_profile.get("disliked_ingredients"),
+            preferred_tags=user_profile.get("preferences"),
+            diseases=user_profile.get("diseases"),
             limit=30,
         )
         if not recipes:
@@ -77,14 +97,18 @@ async def _generate(user_id: str, days: int) -> dict:
                 all_days.append(day_plan.model_dump())
 
             plan_data = {
+                "user_profile": user_profile,
                 "total_days": days,
-                "daily_target_calories": user.target_calories,
+                "daily_target_calories": user_profile["target_calories"],
                 "days": all_days,
             }
 
             plan_record.plan_data = plan_data
             plan_record.status = MealPlanStatus.ready
             await session.commit()
+
+            # Cache the completed plan
+            await cache.set_json(f"plan:{plan_id}", plan_data, ttl=3600)
 
             logger.info("Plan {} generated successfully ({} days)", plan_id, days)
             return {"plan_id": plan_id, "status": "READY"}

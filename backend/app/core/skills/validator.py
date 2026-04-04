@@ -5,14 +5,22 @@ from __future__ import annotations
 from loguru import logger
 
 from app.core.agent.schemas import DayPlan
+from app.db.models import DEFAULT_MEAL_SCHEDULE
 
 
 def validate_day_plan(
     plan: DayPlan,
     target_calories: int,
+    meal_schedule: list[dict] | None = None,
     tolerance_pct: float = 5.0,
 ) -> tuple[bool, str | None]:
     """Проверяет план дня на корректность КБЖУ.
+
+    Args:
+        plan: сгенерированный план дня
+        target_calories: целевой калораж
+        meal_schedule: расписание пользователя (для проверки типов приёмов)
+        tolerance_pct: допустимое отклонение в %
 
     Returns:
         (is_valid, error_message_or_none)
@@ -44,13 +52,19 @@ def validate_day_plan(
         logger.warning("Validation: {}", msg)
         return False, msg
 
-    meal_types = [m.type for m in plan.meals]
-    for required in ("breakfast", "lunch", "dinner"):
-        if required not in meal_types:
-            msg = f"Отсутствует обязательный приём пищи: {required}"
-            logger.warning("Validation: {}", msg)
-            return False, msg
+    # Validate required meal types from schedule
+    schedule = meal_schedule or DEFAULT_MEAL_SCHEDULE
+    required_types = {slot["type"] for slot in schedule}
+    actual_types = {m.type for m in plan.meals}
 
+    missing = required_types - actual_types
+    if missing:
+        msg = f"Отсутствуют приёмы пищи из расписания: {', '.join(sorted(missing))}"
+        logger.warning("Validation: {}", msg)
+        return False, msg
+
+    # Check for unexpected duplicates (same type twice)
+    meal_types = [m.type for m in plan.meals]
     if len(meal_types) != len(set(meal_types)):
         msg = "Дублируются типы приёмов пищи в рамках одного дня"
         logger.warning("Validation: {}", msg)

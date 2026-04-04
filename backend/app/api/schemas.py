@@ -3,9 +3,17 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 from app.db.models import ActivityLevel, Gender, Goal
+
+
+class MealSlot(BaseModel):
+    """Один слот расписания: тип приёма, время, % калорий."""
+
+    type: str = Field(description="breakfast, lunch, dinner, snack, second_snack")
+    time: str = Field(pattern=r"^\d{2}:\d{2}$", description="HH:MM")
+    calories_pct: int = Field(ge=5, le=50)
 
 
 class UserCreate(BaseModel):
@@ -21,6 +29,16 @@ class UserCreate(BaseModel):
     preferences: list[str] = Field(default_factory=list)
     disliked_ingredients: list[str] = Field(default_factory=list)
     diseases: list[str] = Field(default_factory=list)
+    meal_schedule: list[MealSlot] | None = None
+
+    @model_validator(mode="after")
+    def validate_schedule(self):
+        if self.meal_schedule is not None:
+            total = sum(s.calories_pct for s in self.meal_schedule)
+            if total != 100:
+                msg = f"Сумма calories_pct должна быть 100, получено {total}"
+                raise ValueError(msg)
+        return self
 
 
 class UserUpdate(BaseModel):
@@ -34,6 +52,16 @@ class UserUpdate(BaseModel):
     preferences: list[str] | None = None
     disliked_ingredients: list[str] | None = None
     diseases: list[str] | None = None
+    meal_schedule: list[MealSlot] | None = None
+
+    @model_validator(mode="after")
+    def validate_schedule(self):
+        if self.meal_schedule is not None:
+            total = sum(s.calories_pct for s in self.meal_schedule)
+            if total != 100:
+                msg = f"Сумма calories_pct должна быть 100, получено {total}"
+                raise ValueError(msg)
+        return self
 
 
 class UserResponse(BaseModel):
@@ -50,6 +78,7 @@ class UserResponse(BaseModel):
     disliked_ingredients: list[str]
     diseases: list[str]
     target_calories: int | None
+    meal_schedule: list[MealSlot] | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

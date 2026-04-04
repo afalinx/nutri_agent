@@ -38,6 +38,11 @@ async def seed():
                 fat=r["fat"],
                 carbs=r["carbs"],
                 tags=r.get("tags", []),
+                meal_type=r.get("meal_type"),
+                allergens=r.get("allergens", []),
+                ingredients_short=r.get("ingredients_short"),
+                prep_time_min=r.get("prep_time_min"),
+                category=r.get("category"),
                 embedding=None,
             )
             session.add(recipe)

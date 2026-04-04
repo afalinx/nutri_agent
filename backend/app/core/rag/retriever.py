@@ -1,34 +1,20 @@
-"""RAG Retriever — поиск рецептов с фильтрацией аллергенов."""
+"""RAG Retriever — поиск рецептов с фильтрацией по аллергенам, предпочтениям и заболеваниям.
+
+Рецепты загружаются из Redis-кеша (или БД при промахе) и фильтруются in-memory.
+Это быстрее SQL ILIKE для малого каталога (48 рецептов) и использует обогащённые поля.
+"""
 
 from __future__ import annotations
 
 from loguru import logger
-from sqlalchemy import String, not_, or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import cache
 from app.db.models import Recipe
 
-_ALLERGEN_ALIASES: dict[str, list[str]] = {
-    "nuts": ["орех", "миндал", "фундук", "кешью", "фисташ", "пекан", "арахис", "nuts", "nut"],
-    "milk": [
-        "молок",
-        "молоч",
-        "сливк",
-        "сливоч",
-        "сметан",
-        "творог",
-        "кефир",
-        "йогурт",
-        "сыр",
-        "milk",
-    ],
-    "gluten": ["пшениц", "мука", "хлеб", "макарон", "спагетти", "лапша", "gluten"],
-    "eggs": ["яйц", "яичн", "egg"],
-    "soy": ["соев", "тофу", "soy"],
-    "fish": ["рыб", "лосос", "тунец", "треск", "сёмг", "fish"],
-    "shellfish": ["креветк", "краб", "мидии", "устриц", "shellfish"],
-    "lactose": ["молок", "молоч", "сливк", "кефир", "йогурт", "lactose"],
-}
+CACHE_KEY = "recipes:all"
+CACHE_TTL = 86400  # 24 hours
 
 _DISEASE_RULES: dict[str, dict[str, list[str]]] = {
     "diabetes": {
@@ -54,17 +40,42 @@ _DISEASE_RULES: dict[str, dict[str, list[str]]] = {
 }
 
 
-def _expand_allergens(allergies: list[str]) -> list[str]:
-    """Раскрывает аллерген в список ключевых слов для фильтрации."""
-    keywords: list[str] = []
-    for allergen in allergies:
-        key = allergen.lower().strip()
-        if key in _ALLERGEN_ALIASES:
-            keywords.extend(_ALLERGEN_ALIASES[key])
-        else:
-            keywords.append(key)
-    # Дедуплицируем для меньшего SQL-условия.
-    return list(dict.fromkeys(keywords))
+async def _load_all_recipes(session: AsyncSession) -> list[dict]:
+    """Load all recipes from DB and cache them."""
+    result = await session.execute(select(Recipe))
+    recipes = list(result.scalars().all())
+
+    recipe_dicts = [
+        {
+            "id": str(r.id),
+            "title": r.title,
+            "description": r.description,
+            "ingredients": r.ingredients,
+            "calories": r.calories,
+            "protein": r.protein,
+            "fat": r.fat,
+            "carbs": r.carbs,
+            "tags": r.tags or [],
+            "meal_type": r.meal_type,
+            "allergens": r.allergens or [],
+            "ingredients_short": r.ingredients_short or "",
+            "prep_time_min": r.prep_time_min,
+            "category": r.category,
+        }
+        for r in recipes
+    ]
+
+    await cache.set_json(CACHE_KEY, recipe_dicts, ttl=CACHE_TTL)
+    logger.debug("Cached {} recipes in Redis", len(recipe_dicts))
+    return recipe_dicts
+
+
+async def _get_all_recipes(session: AsyncSession) -> list[dict]:
+    """Get all recipes from cache, falling back to DB."""
+    cached = await cache.get_json(CACHE_KEY)
+    if cached:
+        return cached
+    return await _load_all_recipes(session)
 
 
 def _expand_disease_rules(diseases: list[str]) -> tuple[list[str], list[str]]:
@@ -80,71 +91,92 @@ def _expand_disease_rules(diseases: list[str]) -> tuple[list[str], list[str]]:
     return list(dict.fromkeys(exclude_keywords)), list(dict.fromkeys(preferred_tags))
 
 
+def _recipe_matches_keyword(recipe: dict, keyword: str) -> bool:
+    """Check if a recipe contains a keyword in ingredients or title."""
+    kw = keyword.lower()
+    if kw in recipe["title"].lower():
+        return True
+    return kw in recipe.get("ingredients_short", "").lower()
+
+
 async def search_recipes(
     session: AsyncSession,
     allergies: list[str] | None = None,
     dislikes: list[str] | None = None,
     preferred_tags: list[str] | None = None,
     diseases: list[str] | None = None,
-    limit: int = 20,
-) -> list[Recipe]:
-    """Поиск рецептов с жёсткой фильтрацией аллергенов.
+    limit: int = 30,
+) -> list[dict]:
+    """Поиск рецептов с in-memory фильтрацией по кешированным данным.
 
-    Пока эмбеддинги не загружены — простой SQL-поиск по тегам.
-    При наличии эмбеддингов — будет векторный поиск.
+    Использует обогащённое поле `allergens` для точной фильтрации аллергенов,
+    и `ingredients_short` для фильтрации нелюбимых ингредиентов.
     """
-    stmt = select(Recipe)
+    all_recipes = await _get_all_recipes(session)
 
-    hard_exclude_keywords: list[str] = []
+    # --- Hard exclusion: allergens (exact match on enriched field) ---
+    user_allergens = set()
     if allergies:
-        hard_exclude_keywords.extend(_expand_allergens(allergies))
-    if dislikes:
-        hard_exclude_keywords.extend([x.lower().strip() for x in dislikes if x.strip()])
+        for a in allergies:
+            user_allergens.add(a.lower().strip())
 
+    # --- Hard exclusion: disease rules ---
+    disease_exclude_keywords: list[str] = []
     disease_preferred_tags: list[str] = []
     if diseases:
         disease_exclude_keywords, disease_preferred_tags = _expand_disease_rules(diseases)
-        hard_exclude_keywords.extend(disease_exclude_keywords)
 
-    hard_exclude_keywords = list(dict.fromkeys(hard_exclude_keywords))
-    for kw in hard_exclude_keywords:
-        stmt = stmt.where(not_(Recipe.ingredients.cast(String).ilike(f"%{kw}%")))
-        stmt = stmt.where(not_(Recipe.title.ilike(f"%{kw}%")))
+    # --- Hard exclusion: dislikes ---
+    dislike_keywords = [d.lower().strip() for d in (dislikes or []) if d.strip()]
 
+    # Apply hard filters
+    safe_recipes: list[dict] = []
+    for r in all_recipes:
+        # Filter by allergens (exact set intersection)
+        recipe_allergens = set(r.get("allergens", []))
+        if user_allergens & recipe_allergens:
+            continue
+
+        # Filter by disease-excluded keywords
+        if any(_recipe_matches_keyword(r, kw) for kw in disease_exclude_keywords):
+            continue
+
+        # Filter by dislikes
+        if any(_recipe_matches_keyword(r, kw) for kw in dislike_keywords):
+            continue
+
+        safe_recipes.append(r)
+
+    # --- Soft filter: prefer recipes with matching tags ---
     all_preferred_tags = list(
         dict.fromkeys(
             [
-                *[x.strip() for x in (preferred_tags or []) if x.strip()],
+                *[t.strip() for t in (preferred_tags or []) if t.strip()],
                 *disease_preferred_tags,
             ]
         )
     )
+
     if all_preferred_tags:
-        tag_conditions = [Recipe.tags.any(tag) for tag in all_preferred_tags]
-        preferred_stmt = stmt.where(or_(*tag_conditions)).limit(limit)
-        preferred_result = await session.execute(preferred_stmt)
-        preferred_recipes = list(preferred_result.scalars().all())
-        if preferred_recipes:
+        preferred = [
+            r
+            for r in safe_recipes
+            if any(tag in (r.get("tags") or []) for tag in all_preferred_tags)
+        ]
+        if preferred:
             logger.debug(
-                "RAG search: found {} recipes with preferred_tags {}",
-                len(preferred_recipes),
+                "RAG: {} recipes match preferred_tags {}",
+                len(preferred),
                 all_preferred_tags,
             )
-            return preferred_recipes
-        logger.debug(
-            "RAG search: no recipes for preferred_tags {}, fallback to base filter",
-            all_preferred_tags,
-        )
-
-    result = await session.execute(stmt.limit(limit))
-    recipes = list(result.scalars().all())
+            return preferred[:limit]
+        logger.debug("RAG: no preferred tag matches, using all {} safe recipes", len(safe_recipes))
 
     logger.debug(
-        "RAG search: found {} recipes (allergies={}, dislikes={}, preferred_tags={}, diseases={})",
-        len(recipes),
+        "RAG: {} recipes after filtering (allergies={}, dislikes={}, diseases={})",
+        len(safe_recipes),
         allergies,
         dislikes,
-        all_preferred_tags,
         diseases,
     )
-    return recipes
+    return safe_recipes[:limit]

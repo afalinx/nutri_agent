@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import BaseModel, Field
 
 
@@ -14,14 +12,26 @@ class IngredientSummary(BaseModel):
 
 
 class MealItem(BaseModel):
-    type: Literal["breakfast", "lunch", "dinner", "snack"]
+    """Схема приёма пищи, которую возвращает LLM.
+
+    НЕ содержит ingredients_summary — ингредиенты подставляются post-hoc
+    из данных рецепта, чтобы экономить выходные токены LLM.
+    """
+
+    type: str = Field(description="breakfast, lunch, dinner, snack, second_snack")
+    time: str = Field(description="HH:MM — время приёма пищи")
     recipe_id: str = Field(description="UUID рецепта из базы")
     title: str
     calories: float = Field(ge=0)
     protein: float = Field(ge=0)
     fat: float = Field(ge=0)
     carbs: float = Field(ge=0)
-    ingredients_summary: list[IngredientSummary]
+
+
+class MealItemFull(MealItem):
+    """Расширенная схема для API-ответа — с ингредиентами из БД."""
+
+    ingredients_summary: list[IngredientSummary] = Field(default_factory=list)
 
 
 class DayPlan(BaseModel):
@@ -31,6 +41,17 @@ class DayPlan(BaseModel):
     total_fat: float = Field(ge=0)
     total_carbs: float = Field(ge=0)
     meals: list[MealItem] = Field(min_length=1)
+
+
+class DayPlanFull(BaseModel):
+    """DayPlan с полными данными ингредиентов для сохранения и API."""
+
+    day_number: int = Field(ge=1)
+    total_calories: float = Field(ge=0)
+    total_protein: float = Field(ge=0)
+    total_fat: float = Field(ge=0)
+    total_carbs: float = Field(ge=0)
+    meals: list[MealItemFull] = Field(min_length=1)
 
 
 class MealPlanOutput(BaseModel):

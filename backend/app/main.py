@@ -7,6 +7,7 @@ from loguru import logger
 from app.api.routes.plans import router as plans_router
 from app.api.routes.recipes import router as recipes_router
 from app.api.routes.users import router as users_router
+from app.core import cache
 from app.logging import setup_logging
 
 
@@ -15,6 +16,7 @@ async def lifespan(app: FastAPI):
     setup_logging()
     logger.info("NutriAgent backend starting")
     yield
+    await cache.close()
     logger.info("NutriAgent backend shutting down")
 
 

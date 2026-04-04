@@ -21,7 +21,7 @@ from pathlib import Path
 # Ensure app is importable
 sys.path.insert(0, str(Path(__file__).parent))
 
-from loguru import logger  # noqa: E402
+from loguru import logger
 
 logger.remove()
 
@@ -61,18 +61,37 @@ async def _context(user_id: str, day: int):
 
         recipe_list = []
         for r in recipes:
-            recipe_list.append(
-                {
-                    "id": str(r.id),
-                    "title": r.title,
-                    "calories": r.calories,
-                    "protein": r.protein,
-                    "fat": r.fat,
-                    "carbs": r.carbs,
-                    "tags": r.tags or [],
-                    "ingredients": r.ingredients,
-                }
-            )
+            # retriever now returns dicts (from cache/in-memory filtering)
+            if isinstance(r, dict):
+                recipe_list.append(
+                    {
+                        "id": r["id"],
+                        "title": r["title"],
+                        "calories": r["calories"],
+                        "protein": r["protein"],
+                        "fat": r["fat"],
+                        "carbs": r["carbs"],
+                        "tags": r.get("tags", []),
+                        "ingredients": r.get("ingredients", []),
+                        "meal_type": r.get("meal_type"),
+                        "ingredients_short": r.get("ingredients_short", ""),
+                    }
+                )
+            else:
+                recipe_list.append(
+                    {
+                        "id": str(r.id),
+                        "title": r.title,
+                        "calories": r.calories,
+                        "protein": r.protein,
+                        "fat": r.fat,
+                        "carbs": r.carbs,
+                        "tags": r.tags or [],
+                        "ingredients": r.ingredients,
+                        "meal_type": r.meal_type,
+                        "ingredients_short": r.ingredients_short or "",
+                    }
+                )
 
         context = {
             "user": {
@@ -107,9 +126,6 @@ async def _context(user_id: str, day: int):
                             "protein": "float",
                             "fat": "float",
                             "carbs": "float",
-                            "ingredients_summary": [
-                                {"name": "str", "amount": "float", "unit": "str"}
-                            ],
                         }
                     ],
                 },

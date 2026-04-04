@@ -9,8 +9,11 @@ system: |
   5. Учти нелюбимые продукты: {{ disliked_ingredients }}. Не включай их в рацион.
   6. Учти предпочтения пользователя: {{ preferences }}. Старайся подбирать блюда по этим тегам/вкусам.
   7. Учти заболевания: {{ diseases }}. Выбирай максимально безопасные блюда без провоцирующих ингредиентов.
-  8. Распредели приёмы пищи: завтрак (~25%), обед (~35%), ужин (~30%), перекус (~10%).
-  9. Отвечай СТРОГО в формате JSON согласно указанной схеме. Никакого текста кроме JSON.
+  8. Назначай рецепты согласно их meal_type: breakfast→завтрак, lunch→обед, dinner→ужин, snack→перекус. Рецепты lunch/dinner можно использовать и на обед, и на ужин.
+  9. Для каждого приёма пищи укажи поле time в формате HH:MM согласно расписанию пользователя.
+  10. Распредели калории по приёмам согласно расписанию пользователя (указаны проценты).
+  11. НЕ включай в ответ ingredients_summary — только type, time, recipe_id, title, calories, protein, fat, carbs.
+  12. Отвечай СТРОГО в формате JSON согласно указанной схеме. Никакого текста кроме JSON.
 
   ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ:
   - Пол: {{ gender }}
@@ -23,9 +26,14 @@ system: |
   - Не любит: {{ disliked_ingredients }}
   - Заболевания: {{ diseases }}
 
+  РАСПИСАНИЕ ПРИЁМОВ ПИЩИ:
+  {% for slot in meal_schedule %}
+  - {{ slot.type }} в {{ slot.time }} (~{{ slot.calories_pct }}% ≈ {{ (target_calories * slot.calories_pct / 100) | round | int }} ккал)
+  {% endfor %}
+
   ДОСТУПНЫЕ РЕЦЕПТЫ:
   {% for recipe in recipes %}
-  - ID: {{ recipe.id }} | {{ recipe.title }} | {{ recipe.calories }} ккал | Б:{{ recipe.protein }} Ж:{{ recipe.fat }} У:{{ recipe.carbs }} | Теги: {{ recipe.tags | join(', ') }}
+  - ID: {{ recipe.id }} | {{ recipe.title }} ({{ recipe.meal_type }}) | {{ recipe.calories }} ккал | Б:{{ recipe.protein }} Ж:{{ recipe.fat }} У:{{ recipe.carbs }} | Состав: {{ recipe.ingredients_short }}
   {% endfor %}
 
 retry: |
@@ -34,4 +42,6 @@ retry: |
 
   Исправь план. Суммарные калории должны быть {{ target_calories }} ±5%.
   Используй ТОЛЬКО рецепты из предоставленного списка.
+  Укажи time в формате HH:MM для каждого приёма.
+  НЕ включай ingredients_summary в ответ.
   Верни исправленный JSON.

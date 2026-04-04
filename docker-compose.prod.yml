@@ -5,31 +5,28 @@ services:
       POSTGRES_USER: nutriagent
       POSTGRES_PASSWORD: nutriagent
       POSTGRES_DB: nutriagent
-    ports:
-      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U nutriagent"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-      target: builder
     ports:
       - "8000:8000"
     env_file:
@@ -42,15 +39,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - ./backend:/app
-    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
 
   celery_worker:
     build:
       context: ./backend
       dockerfile: Dockerfile
-      target: builder
     env_file:
       - .env
     environment:
@@ -61,9 +55,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - ./backend:/app
-    command: uv run celery -A app.worker.celery_app worker --loglevel=info
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=info"]
+    restart: unless-stopped
 
 volumes:
   pgdata:

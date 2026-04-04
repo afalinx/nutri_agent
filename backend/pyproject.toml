@@ -21,6 +21,8 @@ dependencies = [
     "pydantic-ai>=1.75.0",
     "python-jose[cryptography]>=3.5.0",
     "passlib[bcrypt]>=1.7.4",
+    "pyyaml>=6.0.0",
+    "bcrypt>=4.0.0",
 ]
 
 [dependency-groups]
@@ -30,22 +32,64 @@ dev = [
     "ruff>=0.14.0",
 ]
 
+[project.scripts]
+nutri-cli = "cli:main"
+
+# ── pytest ──────────────────────────────────────────
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 
+# ── ruff ────────────────────────────────────────────
 [tool.ruff]
 line-length = 100
 target-version = "py311"
 exclude = [
     ".venv",
-    "alembic/versions/*.pyc",
+    "alembic/versions",
 ]
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
-ignore = ["E501"]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "SIM",    # flake8-simplify
+    # "TCH",  # flake8-type-checking (enable later for optimization)
+    "RUF",    # ruff-specific
+    "ASYNC",  # flake8-async
+    "S",      # flake8-bandit (security)
+    "T20",    # flake8-print
+]
+ignore = [
+    "E501",   # line too long (formatter handles it)
+    "S101",   # assert in tests is fine
+    "S104",   # binding to 0.0.0.0 is intentional
+    "S105",   # hardcoded passwords in config defaults are fine for dev
+    "S106",   # same
+    "B008",   # function call in default arg (FastAPI Depends)
+    "UP007",  # X | Y union syntax — keep Optional for compat
+    "RUF001", # ambiguous unicode (cyrillic in strings is intentional)
+    "RUF002", # ambiguous unicode in docstrings (cyrillic is intentional)
+    "RUF003", # ambiguous unicode in comments (cyrillic is intentional)
+    "UP042",  # str+Enum → StrEnum (SQLAlchemy Enum column requires str+Enum)
+]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*.py" = ["F401"]
+"tests/*.py" = ["F401", "S101", "T20"]
+"scripts/*.py" = ["T20", "ASYNC"]
+"cli.py" = ["T20", "ASYNC"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

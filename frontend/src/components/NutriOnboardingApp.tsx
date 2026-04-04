@@ -116,29 +116,26 @@ export default function NutriOnboardingApp() {
       new Set(planData.days.flatMap((day) => day.meals.map((meal) => meal.recipe_id))),
     );
 
-    const entries = await Promise.all(
-      ids.map(async (id): Promise<[string, RecipeDetail] | null> => {
-        try {
-          const response = await fetch(`${API_BASE}/api/recipes/${id}`);
-          if (!response.ok) {
-            return null;
-          }
-          const recipe = (await response.json()) as RecipeDetail;
-          return [id, recipe];
-        } catch {
-          return null;
-        }
-      }),
-    );
+    try {
+      const response = await fetch(`${API_BASE}/api/recipes/batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipe_ids: ids }),
+      });
 
-    const map: Record<string, RecipeDetail> = {};
-    for (const item of entries) {
-      if (!item) {
-        continue;
+      if (!response.ok) {
+        return;
       }
-      map[item[0]] = item[1];
+
+      const recipes = (await response.json()) as RecipeDetail[];
+      const map: Record<string, RecipeDetail> = {};
+      for (const recipe of recipes) {
+        map[recipe.id] = recipe;
+      }
+      setRecipesMap(map);
+    } catch {
+      // Fallback: silent fail, recipes will show summary from plan
     }
-    setRecipesMap(map);
   }
 
   async function generateWeeklyPlan(event: FormEvent) {
@@ -190,9 +187,14 @@ export default function NutriOnboardingApp() {
 
       const generation = (await generateResponse.json()) as { task_id: string };
       let readyPlanId = "";
+      let elapsedMs = 0;
 
-      for (let attempt = 0; attempt < 180; attempt += 1) {
-        await sleep(2000);
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        // Exponential backoff: 2s → 4s → 6s
+        const delay = elapsedMs < 30000 ? 2000 : elapsedMs < 60000 ? 4000 : 6000;
+        await sleep(delay);
+        elapsedMs += delay;
+
         const taskResponse = await fetch(`${API_BASE}/api/tasks/${generation.task_id}`);
         if (!taskResponse.ok) {
           throw new Error("Не удалось получить статус генерации.");
