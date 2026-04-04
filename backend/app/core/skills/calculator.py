@@ -63,9 +63,7 @@ def validate_meal_calories(
     Returns:
         (is_valid, actual_total)
     """
-    actual_total = sum(
-        ingredient.get("calories", 0) for ingredient in meal_ingredients
-    )
+    actual_total = sum(ingredient.get("calories", 0) for ingredient in meal_ingredients)
     if actual_total == 0:
         return (True, declared_calories)
 

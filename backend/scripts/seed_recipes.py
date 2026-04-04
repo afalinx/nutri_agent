@@ -7,11 +7,8 @@ from pathlib import Path
 
 from sqlalchemy import select, text
 
-from app.config import settings
-from app.db.base import Base
 from app.db.models import Recipe
 from app.db.session import async_session, engine
-
 
 DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "recipes.json"
 

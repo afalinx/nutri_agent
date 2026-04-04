@@ -72,6 +72,7 @@ AI-агент составляет недельный рацион под цел
 
 - Python 3.11+
 - Docker и Docker Compose
+- `uv` (современный менеджер окружения и зависимостей)
 - Агент с поддержкой Agent Skills (Claude Code, Cursor, и др.)
 
 ### Запуск
@@ -89,13 +90,13 @@ docker compose -p nutriagent up -d db redis
 
 # 4. Установить зависимости
 cd backend
-pip install -r requirements.txt
+uv sync --dev
 
 # 5. Применить миграции
-PYTHONPATH=. alembic upgrade head
+uv run alembic upgrade head
 
 # 6. Загрузить рецепты
-PYTHONPATH=. python scripts/seed_recipes.py
+uv run python scripts/seed_recipes.py
 ```
 
 ### Использование через Agent Skills
@@ -113,32 +114,47 @@ PYTHONPATH=. python scripts/seed_recipes.py
 cd backend
 
 # Посмотреть пользователей
-PYTHONPATH=. python cli.py users
+uv run python cli.py users
 
 # Получить контекст (рецепты + профиль)
-PYTHONPATH=. python cli.py context --user-id <UUID>
+uv run python cli.py context --user-id <UUID>
 
 # Провалидировать план
-PYTHONPATH=. python cli.py validate --file plan.json
+uv run python cli.py validate --file plan.json
 
 # Сохранить в БД
-PYTHONPATH=. python cli.py save --user-id <UUID> --file plan.json
+uv run python cli.py save --user-id <UUID> --file plan.json
 
 # Агрегировать список покупок
-PYTHONPATH=. python cli.py shopping-list --file plan.json
+uv run python cli.py shopping-list --file plan.json
 ```
 
 ### Использование через API (с OpenRouter)
 
 ```bash
 # Запустить API-сервер
-cd backend && uvicorn app.main:app --reload --port 8000
+cd backend && uv run uvicorn app.main:app --reload --port 8000
 
 # Запустить Celery worker
-cd backend && celery -A app.worker worker -l info
+cd backend && uv run celery -A app.worker worker -l info
 
 # Swagger-документация
 open http://localhost:8000/docs
+```
+
+### Линтинг и форматирование (Ruff)
+
+```bash
+cd backend
+
+# Проверка
+uv run ruff check .
+
+# Автоформат
+uv run ruff format .
+
+# Тесты
+uv run pytest -q
 ```
 
 ---
@@ -301,6 +317,34 @@ nutriagent/
 | `GET` | `/api/plans/:id/shopping-list` | Список покупок |
 
 Swagger: `http://localhost:8000/docs`
+
+---
+
+## Frontend MVP (Astro + React)
+
+В репозитории добавлен простой клиент с онбордингом:
+
+```bash
+cd frontend
+cp .env.example .env   # при необходимости поменяй PUBLIC_API_BASE_URL
+npm install
+npm run dev
+```
+
+UI доступен на `http://127.0.0.1:4321`.
+
+Онбординг собирает:
+- базовую анкету (пол, возраст, вес, рост, активность, цель),
+- предпочтения,
+- нелюбимые продукты,
+- заболевания и аллергии.
+
+После отправки фронт:
+1. создаёт профиль через `POST /api/users`,
+2. запускает генерацию через `POST /api/generate-plan`,
+3. поллит `GET /api/tasks/{task_id}`,
+4. загружает план `GET /api/plans/{id}`,
+5. подтягивает детали рецептов `GET /api/recipes/{id}`.
 
 ---
 

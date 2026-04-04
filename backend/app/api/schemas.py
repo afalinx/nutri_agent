@@ -18,6 +18,9 @@ class UserCreate(BaseModel):
     activity_level: ActivityLevel
     goal: Goal
     allergies: list[str] = Field(default_factory=list)
+    preferences: list[str] = Field(default_factory=list)
+    disliked_ingredients: list[str] = Field(default_factory=list)
+    diseases: list[str] = Field(default_factory=list)
 
 
 class UserUpdate(BaseModel):
@@ -28,6 +31,9 @@ class UserUpdate(BaseModel):
     activity_level: ActivityLevel | None = None
     goal: Goal | None = None
     allergies: list[str] | None = None
+    preferences: list[str] | None = None
+    disliked_ingredients: list[str] | None = None
+    diseases: list[str] | None = None
 
 
 class UserResponse(BaseModel):
@@ -40,6 +46,9 @@ class UserResponse(BaseModel):
     activity_level: ActivityLevel
     goal: Goal
     allergies: list[str]
+    preferences: list[str]
+    disliked_ingredients: list[str]
+    diseases: list[str]
     target_calories: int | None
     created_at: datetime
 

@@ -1,3 +1,6 @@
+# Legacy fallback for pip users.
+# Primary dependency source is backend/pyproject.toml (uv sync).
+
 fastapi[standard]
 uvicorn[standard]
 sqlalchemy[asyncio]

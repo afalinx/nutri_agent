@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import httpx
 import yaml
@@ -72,6 +73,11 @@ async def _call_llm(messages: list[dict]) -> str:
         return data["choices"][0]["message"]["content"]
 
 
+def _append_retry_feedback(messages: list[dict[str, Any]], assistant_raw: str, feedback: str) -> None:
+    messages.append({"role": "assistant", "content": assistant_raw})
+    messages.append({"role": "user", "content": feedback})
+
+
 def _parse_response(raw: str) -> MealPlanOutput:
     cleaned = raw.strip()
     if cleaned.startswith("```"):
@@ -90,13 +96,17 @@ async def generate_day_plan(
 
     Args:
         user_profile: dict с полями gender, age, weight_kg, height_cm, goal,
-                      target_calories, allergies
+                      target_calories, allergies, preferences,
+                      disliked_ingredients, diseases
         recipes: список рецептов из RAG
         day_number: номер дня
 
     Returns:
         Валидный DayPlan
     """
+    if not recipes:
+        raise RuntimeError("No recipes available for generation after profile filters")
+
     templates = _load_prompt()
     system_prompt = _build_system_prompt(templates, user_profile, recipes)
     target_cal = user_profile["target_calories"]
@@ -112,6 +122,7 @@ async def generate_day_plan(
     for attempt in range(1, MAX_RETRIES + 1):
         logger.info("Generation attempt {}/{} for day {}", attempt, MAX_RETRIES, day_number)
 
+        raw_response = ""
         try:
             raw_response = await _call_llm(messages)
             logger.debug("LLM raw response (attempt {}): {}", attempt, raw_response[:500])
@@ -120,13 +131,21 @@ async def generate_day_plan(
             plan = output.day
             plan.day_number = day_number
 
+        except httpx.HTTPError as e:
+            logger.error("LLM request failed on attempt {}: {}", attempt, e)
+            _append_retry_feedback(
+                messages,
+                raw_response,
+                "Ошибка запроса к LLM. Повтори генерацию в корректном JSON по заданной схеме.",
+            )
+            continue
         except (ValidationError, json.JSONDecodeError, KeyError) as e:
             logger.error("Parse error on attempt {}: {}", attempt, e)
-            messages.append({"role": "assistant", "content": raw_response})
-            messages.append({
-                "role": "user",
-                "content": f"Ошибка парсинга: {e}. Верни корректный JSON согласно схеме.",
-            })
+            _append_retry_feedback(
+                messages,
+                raw_response,
+                f"Ошибка парсинга: {e}. Верни корректный JSON согласно схеме.",
+            )
             continue
 
         is_valid, error_msg = validate_day_plan(plan, target_cal)
@@ -146,13 +165,13 @@ async def generate_day_plan(
             validation_error=error_msg,
             target_calories=target_cal,
         )
-        messages.append({"role": "assistant", "content": raw_response})
-        messages.append({"role": "user", "content": retry_prompt})
+        _append_retry_feedback(messages, raw_response, retry_prompt)
 
     if best_plan:
         logger.warning(
             "Returning best plan after {} attempts (deviation: {:.0f} kcal)",
-            MAX_RETRIES, best_deviation,
+            MAX_RETRIES,
+            best_deviation,
         )
         return best_plan
 

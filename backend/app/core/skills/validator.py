@@ -17,6 +17,11 @@ def validate_day_plan(
     Returns:
         (is_valid, error_message_or_none)
     """
+    if target_calories <= 0:
+        msg = f"Некорректный target_calories: {target_calories}"
+        logger.warning("Validation: {}", msg)
+        return False, msg
+
     total_from_meals = sum(m.calories for m in plan.meals)
 
     if abs(total_from_meals - plan.total_calories) > 1:
@@ -46,8 +51,15 @@ def validate_day_plan(
             logger.warning("Validation: {}", msg)
             return False, msg
 
+    if len(meal_types) != len(set(meal_types)):
+        msg = "Дублируются типы приёмов пищи в рамках одного дня"
+        logger.warning("Validation: {}", msg)
+        return False, msg
+
     logger.info(
         "Validation passed: {} kcal (target {}, deviation {:.1f}%)",
-        plan.total_calories, target_calories, deviation_pct,
+        plan.total_calories,
+        target_calories,
+        deviation_pct,
     )
     return True, None

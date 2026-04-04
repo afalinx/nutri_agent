@@ -1,7 +1,7 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
 import bcrypt as _bcrypt
+from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +12,14 @@ from app.db.models import User
 from app.db.session import get_db
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
+
+
+def _normalize_profile_lists(user: User) -> User:
+    user.allergies = user.allergies or []
+    user.preferences = user.preferences or []
+    user.disliked_ingredients = user.disliked_ingredients or []
+    user.diseases = user.diseases or []
+    return user
 
 
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -39,6 +47,9 @@ async def create_user(data: UserCreate, db: AsyncSession = Depends(get_db)):
         activity_level=data.activity_level,
         goal=data.goal,
         allergies=data.allergies,
+        preferences=data.preferences,
+        disliked_ingredients=data.disliked_ingredients,
+        diseases=data.diseases,
         target_calories=target_cal,
     )
 
@@ -47,7 +58,7 @@ async def create_user(data: UserCreate, db: AsyncSession = Depends(get_db)):
     await db.refresh(user)
 
     logger.info("User created: {} (target_calories={})", user.email, target_cal)
-    return user
+    return _normalize_profile_lists(user)
 
 
 @router.get("/{user_id}", response_model=UserResponse)
@@ -56,7 +67,7 @@ async def get_user(user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+    return _normalize_profile_lists(user)
 
 
 @router.put("/{user_id}", response_model=UserResponse)
@@ -87,4 +98,4 @@ async def update_user(
     await db.refresh(user)
 
     logger.info("User updated: {} (target_calories={})", user.email, user.target_calories)
-    return user
+    return _normalize_profile_lists(user)

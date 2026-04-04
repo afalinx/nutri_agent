@@ -1,12 +1,12 @@
 import enum
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Column,
-    DateTime,
     Date,
+    DateTime,
     Enum,
     Float,
     ForeignKey,
@@ -61,6 +61,9 @@ class User(Base):
     goal = Column(Enum(Goal), nullable=False)
 
     allergies = Column(JSONB, default=list)
+    preferences = Column(JSONB, default=list)
+    disliked_ingredients = Column(JSONB, default=list)
+    diseases = Column(JSONB, default=list)
     target_calories = Column(Integer, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)

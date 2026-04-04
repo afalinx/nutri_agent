@@ -29,9 +29,7 @@ async def _generate(user_id: str, days: int) -> dict:
     from app.db.session import async_session
 
     async with async_session() as session:
-        result = await session.execute(
-            select(User).where(User.id == uuid.UUID(user_id))
-        )
+        result = await session.execute(select(User).where(User.id == uuid.UUID(user_id)))
         user = result.scalar_one_or_none()
         if not user:
             raise ValueError(f"User {user_id} not found")
@@ -44,13 +42,21 @@ async def _generate(user_id: str, days: int) -> dict:
             "goal": user.goal.value,
             "target_calories": user.target_calories,
             "allergies": user.allergies or [],
+            "preferences": user.preferences or [],
+            "disliked_ingredients": user.disliked_ingredients or [],
+            "diseases": user.diseases or [],
         }
 
         recipes = await search_recipes(
             session,
             allergies=user.allergies,
+            dislikes=user.disliked_ingredients,
+            preferred_tags=user.preferences,
+            diseases=user.diseases,
             limit=30,
         )
+        if not recipes:
+            raise RuntimeError("No recipes found for this profile after applying filters")
 
         plan_record = MealPlan(
             user_id=uuid.UUID(user_id),

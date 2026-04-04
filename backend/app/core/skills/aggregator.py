@@ -15,16 +15,22 @@ def aggregate_shopping_list(plan_data: dict) -> list[dict]:
     for day in plan_data.get("days", []):
         for meal in day.get("meals", []):
             for ing in meal.get("ingredients_summary", []):
-                key = (ing["name"].strip().lower(), ing.get("unit", "g"))
-                totals[key] += ing.get("amount", 0)
+                raw_name = str(ing.get("name", "")).strip().lower()
+                if not raw_name:
+                    continue
+                unit = str(ing.get("unit", "g")).strip() or "g"
+                key = (raw_name, unit)
+                totals[key] += float(ing.get("amount", 0))
 
     result = []
     for (name, unit), amount in sorted(totals.items()):
-        display_name = name[0].upper() + name[1:]
-        result.append({
-            "name": display_name,
-            "amount": round(amount, 1),
-            "unit": unit,
-        })
+        display_name = name[0].upper() + name[1:] if name else name
+        result.append(
+            {
+                "name": display_name,
+                "amount": round(amount, 1),
+                "unit": unit,
+            }
+        )
 
     return result

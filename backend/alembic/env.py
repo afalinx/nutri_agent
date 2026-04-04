@@ -1,11 +1,11 @@
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from app.db.base import Base
-from app.db.models import User, Recipe, MealPlan  # noqa: F401 — register models
+from alembic import context
 from app.config import settings
+from app.db.base import Base
+from app.db.models import MealPlan, Recipe, User  # noqa: F401 — register models
 
 config = context.config
 
