@@ -1,17 +1,20 @@
 @import url("https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,600&display=swap");
 
 :root {
-  --bg: #f7f3e9;
-  --surface: #fdfaf2;
+  --bg: #f6f0e3;
+  --surface: rgba(255, 250, 239, 0.9);
   --surface-strong: #fffdf8;
-  --line: #d4c8af;
-  --text: #1e1f22;
-  --muted: #5f645e;
-  --brand: #1c7c54;
-  --brand-strong: #14613f;
-  --accent: #f28f3b;
-  --danger: #b3322f;
-  --shadow: 0 18px 60px rgba(28, 48, 32, 0.12);
+  --surface-soft: rgba(255, 255, 255, 0.62);
+  --line: #dccfb6;
+  --text: #1f1f1d;
+  --muted: #66685f;
+  --brand: #1f7a52;
+  --brand-strong: #175c3d;
+  --accent: #d96d2f;
+  --danger: #b63b35;
+  --success: #2b8c62;
+  --warning: #b37a1f;
+  --shadow: 0 22px 70px rgba(42, 48, 34, 0.12);
 }
 
 * {
@@ -29,72 +32,165 @@ body {
   font-family: "Sora", sans-serif;
   color: var(--text);
   background:
-    radial-gradient(circle at 10% 20%, rgba(242, 143, 59, 0.18), transparent 35%),
-    radial-gradient(circle at 85% 15%, rgba(28, 124, 84, 0.18), transparent 42%),
-    linear-gradient(145deg, #faf6ec 0%, #f6f0e0 100%);
+    radial-gradient(circle at 12% 18%, rgba(217, 109, 47, 0.16), transparent 30%),
+    radial-gradient(circle at 85% 10%, rgba(31, 122, 82, 0.18), transparent 30%),
+    linear-gradient(140deg, #faf5ea 0%, #f2ead8 100%);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
 }
 
 .page-shell {
   max-width: 1180px;
   margin: 0 auto;
-  padding: 40px 20px 72px;
+  padding: 40px 20px 80px;
+}
+
+.hero,
+.content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 24px;
 }
 
 .hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  gap: 28px;
-  margin-bottom: 22px;
+  margin-bottom: 24px;
+}
+
+.hero-card,
+.card,
+.modal-card {
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
 }
 
 .hero-card {
-  border: 1px solid var(--line);
-  background: linear-gradient(170deg, #fffdf8, #f9f2df);
-  border-radius: 24px;
-  padding: 28px;
-  box-shadow: var(--shadow);
-}
-
-.hero-card h1 {
-  font-family: "Newsreader", serif;
-  font-size: clamp(2rem, 4vw, 3.4rem);
-  line-height: 1.04;
-  margin: 0 0 14px;
-}
-
-.hero-card p {
-  margin: 0;
-  color: var(--muted);
-  line-height: 1.55;
-}
-
-.meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 18px;
-}
-
-.pill {
-  padding: 7px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.72);
-  font-size: 0.82rem;
+  padding: 30px;
+  background: linear-gradient(160deg, rgba(255, 253, 248, 0.95), rgba(248, 239, 219, 0.92));
 }
 
 .card {
-  border: 1px solid var(--line);
-  background: var(--surface);
-  border-radius: 20px;
   padding: 22px;
-  box-shadow: var(--shadow);
 }
 
-.form-grid {
+.hero-card h1,
+.card h3,
+.meal-card h4,
+.modal-card h3 {
+  font-family: "Newsreader", serif;
+}
+
+.hero-card h1 {
+  margin: 0 0 12px;
+  font-size: clamp(2.2rem, 4vw, 3.7rem);
+  line-height: 1.02;
+}
+
+.hero-card p,
+.modal-description {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.meta,
+.kpi-row,
+.days-head,
+.day-summary,
+.daily-overview,
+.shopping-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.meta {
+  margin-top: 18px;
+}
+
+.pill,
+.plan-badge,
+.day-chip,
+.step-state {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.pill,
+.plan-badge,
+.step-state {
+  padding: 7px 12px;
+  font-size: 0.82rem;
+}
+
+.small {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.status-box,
+.summary-item,
+.metric-box,
+.shopping-item,
+.pipeline-step,
+.meal-card,
+.ingredient-row,
+.kpi-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-soft);
+}
+
+.status-box {
+  margin-top: 14px;
+  padding: 14px;
+}
+
+.status-box strong {
+  color: var(--brand-strong);
+}
+
+.error {
+  margin-top: 12px;
+  color: var(--danger);
+}
+
+.kpi-row {
+  margin-top: 16px;
+}
+
+.kpi-card {
+  flex: 1 1 120px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kpi-card strong {
+  font-size: 1.05rem;
+}
+
+.form-grid,
+.summary-grid,
+.meals-grid,
+.ingredients-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+}
+
+.form-grid,
+.summary-grid,
+.meals-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .field {
@@ -111,17 +207,16 @@ body {
 .field input,
 .field select,
 .field textarea {
+  width: 100%;
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: 14px;
   background: var(--surface-strong);
-  color: var(--text);
   padding: 12px;
-  font-family: inherit;
-  font-size: 0.95rem;
+  color: var(--text);
 }
 
 .field textarea {
-  min-height: 72px;
+  min-height: 88px;
   resize: vertical;
 }
 
@@ -129,138 +224,248 @@ body {
   grid-column: 1 / -1;
 }
 
-.actions {
+.summary-item,
+.metric-box,
+.shopping-item {
+  padding: 14px;
+}
+
+.summary-item strong,
+.metric-box strong,
+.shopping-item strong {
+  display: block;
+  margin-top: 6px;
+}
+
+.actions,
+.section-head,
+.meal-topline {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-top: 20px;
+  justify-content: space-between;
   gap: 12px;
+}
+
+.actions {
+  margin-top: 22px;
 }
 
 .btn {
   border: 1px solid transparent;
-  border-radius: 11px;
-  font-family: inherit;
-  font-size: 0.92rem;
-  font-weight: 600;
+  border-radius: 12px;
   padding: 11px 16px;
+  font-size: 0.94rem;
+  font-weight: 600;
   cursor: pointer;
   transition: transform 140ms ease, filter 140ms ease, background 160ms ease;
 }
 
-.btn:hover {
+.btn:hover:not(:disabled) {
   transform: translateY(-1px);
   filter: brightness(0.98);
 }
 
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .btn-primary {
-  background: linear-gradient(130deg, var(--brand), #219d6a);
+  background: linear-gradient(135deg, var(--brand), #27a068);
   color: #fff;
 }
 
 .btn-secondary {
   border-color: var(--line);
-  background: transparent;
+  background: rgba(255, 255, 255, 0.74);
   color: var(--text);
 }
 
-.btn-danger {
-  background: var(--danger);
-  color: #fff;
+.content-grid {
+  margin-bottom: 24px;
 }
 
-.status-box {
-  margin-top: 14px;
-  border: 1px solid var(--line);
-  border-radius: 13px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.8);
-}
-
-.status-box strong {
-  color: var(--brand-strong);
-}
-
-.error {
-  color: var(--danger);
-  margin-top: 10px;
-}
-
-.days-head {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 18px 0 14px;
-}
-
-.day-chip {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #fff;
-  padding: 8px 12px;
-  font-size: 0.86rem;
-}
-
-.day-chip.active {
-  border-color: var(--brand);
-  background: rgba(28, 124, 84, 0.12);
-  font-weight: 600;
-}
-
-.meals-grid {
+.pipeline-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.pipeline-step {
+  padding: 14px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 14px;
 }
 
+.pipeline-step.is-running {
+  border-color: rgba(217, 109, 47, 0.5);
+}
+
+.pipeline-step.is-completed {
+  border-color: rgba(43, 140, 98, 0.35);
+}
+
+.pipeline-step.is-failed {
+  border-color: rgba(182, 59, 53, 0.4);
+}
+
+.step-state {
+  white-space: nowrap;
+}
+
+.result-card {
+  margin-top: 0;
+}
+
+.disclaimer {
+  margin: 18px 0;
+  border-left: 4px solid var(--accent);
+  padding: 12px 14px;
+  border-radius: 0 14px 14px 0;
+  background: rgba(217, 109, 47, 0.08);
+  color: #6b4a2b;
+}
+
+.day-chip {
+  padding: 9px 14px;
+  font-size: 0.9rem;
+}
+
+.day-chip.active {
+  background: rgba(31, 122, 82, 0.14);
+  border-color: rgba(31, 122, 82, 0.35);
+  font-weight: 700;
+}
+
+.daily-overview {
+  margin: 18px 0;
+}
+
+.daily-overview.compact {
+  margin-top: 16px;
+}
+
+.metric-box {
+  min-width: 120px;
+}
+
+.meals-grid {
+  margin-top: 16px;
+}
+
 .meal-card {
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 14px;
-  background: #fff;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.8);
 }
 
 .meal-card h4 {
-  margin: 0 0 10px;
-  font-family: "Newsreader", serif;
-  font-size: 1.15rem;
+  margin: 0;
+  font-size: 1.24rem;
 }
 
-.macro {
+.macro,
+.ingredients-preview {
   color: var(--muted);
-  font-size: 0.84rem;
+  line-height: 1.5;
 }
 
-.recipe-detail {
-  margin-top: 10px;
-  border-top: 1px dashed var(--line);
-  padding-top: 10px;
+.shopping-grid {
+  margin-top: 18px;
 }
 
-.recipe-detail ul {
-  margin: 8px 0 0;
-  padding-left: 20px;
+.shopping-item {
+  min-width: 150px;
 }
 
-.small {
+.empty-state {
+  border: 1px dashed var(--line);
+  border-radius: 16px;
+  padding: 18px;
   color: var(--muted);
-  font-size: 0.8rem;
+  background: rgba(255, 255, 255, 0.45);
 }
 
-@media (max-width: 880px) {
-  .hero {
-    grid-template-columns: 1fr;
-  }
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(33, 30, 22, 0.42);
+}
 
-  .form-grid {
-    grid-template-columns: 1fr;
-  }
+.modal-card {
+  width: min(720px, 100%);
+  max-height: 85vh;
+  overflow: auto;
+  padding: 22px;
+  background: linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(248, 241, 228, 0.95));
+}
 
+.ingredients-list {
+  margin-top: 18px;
+}
+
+.ingredient-row {
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+@media (max-width: 920px) {
+  .hero,
+  .content-grid,
+  .form-grid,
+  .summary-grid,
   .meals-grid {
     grid-template-columns: 1fr;
   }
 
+  .section-head,
+  .actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 640px) {
   .page-shell {
-    padding: 22px 14px 48px;
+    padding: 24px 14px 60px;
+  }
+
+  .hero-card,
+  .card,
+  .modal-card {
+    border-radius: 18px;
+  }
+
+  .pill,
+  .plan-badge,
+  .step-state,
+  .day-chip {
+    font-size: 0.78rem;
+  }
+
+  .shopping-item,
+  .metric-box,
+  .summary-item,
+  .pipeline-step {
+    width: 100%;
+  }
+
+  .pipeline-step,
+  .ingredient-row,
+  .meal-topline {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }

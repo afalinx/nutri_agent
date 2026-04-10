@@ -15,6 +15,12 @@ from app.db.models import Recipe
 
 CACHE_KEY = "recipes:all"
 CACHE_TTL = 86400  # 24 hours
+_TAG_TO_MEAL_TYPE = {
+    "завтрак": "breakfast",
+    "обед": "lunch",
+    "ужин": "dinner",
+    "перекус": "snack",
+}
 
 _DISEASE_RULES: dict[str, dict[str, list[str]]] = {
     "diabetes": {
@@ -40,6 +46,24 @@ _DISEASE_RULES: dict[str, dict[str, list[str]]] = {
 }
 
 
+def _infer_meal_type(tags: list[str] | None, meal_type: str | None) -> str:
+    if meal_type and meal_type.strip():
+        return meal_type.strip().lower()
+
+    normalized_tags = [tag.lower().strip() for tag in (tags or []) if tag.strip()]
+    detected = [_TAG_TO_MEAL_TYPE[tag] for tag in normalized_tags if tag in _TAG_TO_MEAL_TYPE]
+
+    if not detected:
+        return "universal"
+    if len(detected) == 1:
+        return detected[0]
+    if "lunch" in detected and "dinner" in detected:
+        return "lunch/dinner"
+    if "breakfast" in detected and "snack" in detected:
+        return "breakfast"
+    return detected[0]
+
+
 async def _load_all_recipes(session: AsyncSession) -> list[dict]:
     """Load all recipes from DB and cache them."""
     result = await session.execute(select(Recipe))
@@ -56,7 +80,7 @@ async def _load_all_recipes(session: AsyncSession) -> list[dict]:
             "fat": r.fat,
             "carbs": r.carbs,
             "tags": r.tags or [],
-            "meal_type": r.meal_type,
+            "meal_type": _infer_meal_type(r.tags or [], r.meal_type),
             "allergens": r.allergens or [],
             "ingredients_short": r.ingredients_short or "",
             "prep_time_min": r.prep_time_min,
@@ -70,11 +94,30 @@ async def _load_all_recipes(session: AsyncSession) -> list[dict]:
     return recipe_dicts
 
 
+def _normalize_cached_recipe(recipe: dict) -> dict:
+    normalized = dict(recipe)
+    normalized["meal_type"] = _infer_meal_type(
+        normalized.get("tags") or [],
+        normalized.get("meal_type"),
+    )
+    return normalized
+
+
+def _is_cache_healthy(recipes: list[dict]) -> bool:
+    if not recipes:
+        return True
+    return all(bool((recipe.get("meal_type") or "").strip()) for recipe in recipes)
+
+
 async def _get_all_recipes(session: AsyncSession) -> list[dict]:
     """Get all recipes from cache, falling back to DB."""
     cached = await cache.get_json(CACHE_KEY)
     if cached:
-        return cached
+        normalized_cached = [_normalize_cached_recipe(recipe) for recipe in cached]
+        if _is_cache_healthy(normalized_cached):
+            return normalized_cached
+        logger.warning("Recipe cache is stale or incomplete; rebuilding from database")
+        await cache.delete(CACHE_KEY)
     return await _load_all_recipes(session)
 
 
@@ -133,7 +176,7 @@ async def search_recipes(
     safe_recipes: list[dict] = []
     for r in all_recipes:
         # Filter by allergens (exact set intersection)
-        recipe_allergens = set(r.get("allergens", []))
+        recipe_allergens = {a.lower().strip() for a in (r.get("allergens", []) or [])}
         if user_allergens & recipe_allergens:
             continue
 

@@ -238,6 +238,28 @@ def cmd_shopping(args):
 
     raw = sys.stdin.read() if args.file == "-" else Path(args.file).read_text()
     plan_data = json.loads(raw)
+    if args.day_format or args.input_format == "day":
+        if "day" not in plan_data:
+            print(
+                json.dumps(
+                    {"error": "Expected day-format JSON with top-level key 'day'"},
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        plan_data = {
+            "total_days": 1,
+            "daily_target_calories": plan_data.get("daily_target_calories"),
+            "days": [plan_data["day"]],
+        }
+    elif args.input_format == "auto" and "day" in plan_data and "days" not in plan_data:
+        plan_data = {
+            "total_days": 1,
+            "daily_target_calories": plan_data.get("daily_target_calories"),
+            "days": [plan_data["day"]],
+        }
+
     items = aggregate_shopping_list(plan_data)
     print(json.dumps(items, ensure_ascii=False, indent=2))
 
@@ -270,6 +292,17 @@ def main():
 
     p_shop = sub.add_parser("shopping-list", help="Aggregate shopping list from plan")
     p_shop.add_argument("--file", default="-", help="Plan JSON file or - for stdin")
+    p_shop.add_argument(
+        "--day-format",
+        action="store_true",
+        help="Treat input as one-day format ({daily_target_calories, day})",
+    )
+    p_shop.add_argument(
+        "--input-format",
+        choices=["auto", "day", "week"],
+        default="auto",
+        help="Input JSON format (default: auto)",
+    )
     p_shop.set_defaults(func=cmd_shopping)
 
     args = parser.parse_args()

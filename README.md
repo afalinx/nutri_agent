@@ -66,7 +66,7 @@ AI-агент составляет недельный рацион под цел
 
 ---
 
-## Быстрый старт
+## Быстрый старт (CLI-first, основной режим)
 
 ### Требования
 
@@ -99,16 +99,17 @@ uv run alembic upgrade head
 uv run python scripts/seed_recipes.py
 ```
 
-### Использование через Agent Skills
+### Основной путь: Agent Skills (без API)
 
 Просто скажите агенту:
 - *«Составь план питания для пользователя test@nutriagent.ru»*
 - *«Сгенерируй рацион на неделю»*
 - *«Покажи список покупок»*
 
-Агент автоматически прочитает SKILL.md и выполнит всё через CLI.
+Агент автоматически прочитает SKILL.md и выполнит полный цикл:
+`context -> generate -> validate -> auto-fix -> save -> shopping-list`.
 
-### Использование через CLI (вручную)
+### CLI вручную (тот же пайплайн)
 
 ```bash
 cd backend
@@ -125,11 +126,14 @@ uv run python cli.py validate --file plan.json
 # Сохранить в БД
 uv run python cli.py save --user-id <UUID> --file plan.json
 
-# Агрегировать список покупок
-uv run python cli.py shopping-list --file plan.json
+# Агрегировать список покупок из дневного формата
+uv run python cli.py shopping-list --file plan.json --day-format
+
+# или автоопределение формата (day/week)
+uv run python cli.py shopping-list --file plan.json --input-format auto
 ```
 
-### Использование через API (с OpenRouter)
+### API-режим (опционально)
 
 ```bash
 # Запустить API-сервер
@@ -176,6 +180,22 @@ uv run pytest -q
 ```
 
 Цикл рефлексии реализуется **самим агентом**: он генерирует план, валидирует через CLI, и при ошибке исправляет — без внешнего API.
+
+---
+
+## MVP демо-сценарий (без API)
+
+Для демонстрации готовности проекта достаточно CLI-first потока:
+
+1. `uv run python cli.py users` — выбрать пользователя
+2. `uv run python cli.py context --user-id <UUID> --day 1` — получить контекст
+3. Агент генерирует JSON плана (`/tmp/plan.json`)
+4. `uv run python cli.py validate --file /tmp/plan.json`
+5. При ошибке — автоисправление и повтор шага 4 (до `valid=true`)
+6. `uv run python cli.py save --user-id <UUID> --file /tmp/plan.json`
+7. `uv run python cli.py shopping-list --file /tmp/plan.json --day-format`
+
+Демонстрационный итог: валидный план, `plan_id` в БД и агрегированный список покупок.
 
 ---
 

@@ -6,7 +6,7 @@ import uuid
 from datetime import date
 
 from celery.result import AsyncResult
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import Response
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import cache
+from app.core.demo_pipeline import create_demo_task, get_demo_task, schedule_demo_pipeline
 from app.core.skills.aggregator import aggregate_shopping_list
 from app.core.skills.ics_export import generate_ics
 from app.db.models import MealPlan, MealPlanStatus
@@ -39,6 +40,18 @@ class TaskStatusResponse(BaseModel):
     error: str | None = None
 
 
+class DemoStepResponse(BaseModel):
+    key: str
+    status: str
+    message: str = ""
+
+
+class DemoTaskStatusResponse(TaskStatusResponse):
+    current_step: str | None = None
+    steps: list[DemoStepResponse] = Field(default_factory=list)
+    shopping_list: list[dict] | None = None
+
+
 class PlanResponse(BaseModel):
     id: uuid.UUID
     user_id: uuid.UUID
@@ -57,6 +70,14 @@ async def generate_plan(data: GeneratePlanRequest):
     )
     logger.info("Plan generation queued: task_id={} user_id={}", task.id, data.user_id)
     return GeneratePlanResponse(task_id=task.id)
+
+
+@router.post("/demo/generate-plan", response_model=GeneratePlanResponse)
+async def generate_demo_plan(data: GeneratePlanRequest, background_tasks: BackgroundTasks):
+    task = create_demo_task(str(data.user_id), data.days)
+    background_tasks.add_task(schedule_demo_pipeline, task)
+    logger.info("Demo plan generation queued: task_id={} user_id={}", task.task_id, data.user_id)
+    return GeneratePlanResponse(task_id=task.task_id)
 
 
 @router.get("/tasks/{task_id}", response_model=TaskStatusResponse)
@@ -84,6 +105,14 @@ async def get_task_status(task_id: str):
         response.error = str(result.result)
 
     return response
+
+
+@router.get("/demo/tasks/{task_id}", response_model=DemoTaskStatusResponse)
+async def get_demo_task_status(task_id: str):
+    task = get_demo_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Demo task not found")
+    return DemoTaskStatusResponse(**task.payload())
 
 
 @router.get("/plans/{plan_id}", response_model=PlanResponse)
@@ -222,7 +251,7 @@ async def get_alternatives(
 
     alternatives = []
     for r in all_recipes:
-        r_type = r.get("meal_type", "")
+        r_type = (r.get("meal_type") or "").strip()
         # Match meal_type (including universal types like "lunch/dinner")
         if meal_type not in r_type and r_type != meal_type:
             continue
@@ -281,7 +310,7 @@ async def swap_meal(
         candidates = [
             r
             for r in all_recipes
-            if data.meal_type in r.get("meal_type", "")
+            if data.meal_type in ((r.get("meal_type") or "").strip())
             and r["id"] != current_id
             and r["id"] not in used_ids
         ]
