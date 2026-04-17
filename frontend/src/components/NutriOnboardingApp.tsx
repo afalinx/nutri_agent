@@ -60,12 +60,15 @@ type PipelineStep = {
   message: string;
 };
 
-type DemoTaskStatus = {
+type TaskStatus = {
   task_id: string;
+  mode?: string | null;
   status: "PENDING" | "RUNNING" | "READY" | "FAILED";
+  quality_status?: "valid" | "partially_valid" | "failed" | null;
   current_step?: string | null;
   steps: PipelineStep[];
   plan_id?: string | null;
+  warnings?: string[] | null;
   error?: string | null;
   shopping_list?: ShoppingItem[] | null;
 };
@@ -127,13 +130,14 @@ function formatStepState(value: PipelineStep["status"]): string {
 
 export default function NutriOnboardingApp() {
   const [step, setStep] = useState(1);
-  const [status, setStatus] = useState("Заполните профиль и запустите локальную demo-генерацию.");
+  const [status, setStatus] = useState("Заполните профиль и запустите генерацию через agent_cli.");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [task, setTask] = useState<DemoTaskStatus | null>(null);
+  const [task, setTask] = useState<TaskStatus | null>(null);
   const [planId, setPlanId] = useState("");
   const [plan, setPlan] = useState<WeeklyPlan | null>(null);
   const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [activeDay, setActiveDay] = useState(1);
   const [openRecipeId, setOpenRecipeId] = useState<string | null>(null);
   const [recipesMap, setRecipesMap] = useState<Record<string, RecipeDetail>>({});
@@ -222,7 +226,11 @@ export default function NutriOnboardingApp() {
       throw new Error("Не удалось получить готовый план.");
     }
 
-    const planPayload = (await planResponse.json()) as { plan_data: WeeklyPlan | null };
+    const planPayload = (await planResponse.json()) as {
+      plan_data: WeeklyPlan | null;
+      warnings?: string[];
+      quality_status?: string | null;
+    };
     if (!planPayload.plan_data?.days?.length) {
       throw new Error("План пустой. Для демо не удалось собрать ни одного дня.");
     }
@@ -231,6 +239,9 @@ export default function NutriOnboardingApp() {
     const normalizedPlan = { ...planPayload.plan_data, days: normalizedDays };
     setPlan(normalizedPlan);
     setActiveDay(normalizedDays[0]?.day_number ?? 1);
+    if (planPayload.warnings?.length) {
+      setWarnings((prev) => Array.from(new Set([...prev, ...planPayload.warnings!])));
+    }
 
     if (shoppingResponse.ok) {
       const shoppingPayload = (await shoppingResponse.json()) as { items: ShoppingItem[] };
@@ -242,17 +253,18 @@ export default function NutriOnboardingApp() {
     await loadRecipeDetails(normalizedPlan);
   }
 
-  async function pollDemoTask(taskId: string) {
+  async function pollTask(taskId: string) {
     for (let attempt = 0; attempt < 120; attempt += 1) {
       await sleep(1200);
 
-      const response = await fetch(`${API_BASE}/api/demo/tasks/${taskId}`);
+      const response = await fetch(`${API_BASE}/api/tasks/${taskId}`);
       if (!response.ok) {
-        throw new Error("Не удалось получить статус demo-пайплайна.");
+        throw new Error("Не удалось получить статус пайплайна.");
       }
 
-      const payload = (await response.json()) as DemoTaskStatus;
+      const payload = (await response.json()) as TaskStatus;
       setTask(payload);
+      setWarnings(payload.warnings ?? []);
 
       const runningStep = payload.steps.find((item) => item.status === "running");
       if (payload.status === "FAILED") {
@@ -262,7 +274,7 @@ export default function NutriOnboardingApp() {
       }
 
       if (payload.status === "READY" && payload.plan_id) {
-        setStatus("План готов. Загружаем артефакты демо.");
+        setStatus("План готов. Загружаем артефакты.");
         setPlanId(payload.plan_id);
         await loadPlanArtifacts(payload.plan_id, payload.shopping_list);
         return;
@@ -273,7 +285,7 @@ export default function NutriOnboardingApp() {
       }
     }
 
-    throw new Error("Пайплайн не завершился вовремя. Попробуйте перезапустить демо.");
+    throw new Error("Пайплайн не завершился вовремя. Попробуйте перезапустить генерацию.");
   }
 
   async function generateWeeklyPlan(event: FormEvent) {
@@ -283,11 +295,12 @@ export default function NutriOnboardingApp() {
     setPlan(null);
     setPlanId("");
     setShoppingList([]);
+    setWarnings([]);
     setRecipesMap({});
     setOpenRecipeId(null);
     setCopied(false);
     setIsSubmitting(true);
-    setStatus("Создаём профиль для demo-flow.");
+    setStatus("Создаём профиль пользователя.");
 
     try {
       const createUserBody = {
@@ -317,26 +330,26 @@ export default function NutriOnboardingApp() {
       }
 
       const userData = (await userResponse.json()) as { id: string };
-      setStatus("Профиль создан. Запускаем CLI-first pipeline.");
+      setStatus("Профиль создан. Запускаем agent_cli pipeline.");
       setStep(5);
 
-      const generateResponse = await fetch(`${API_BASE}/api/demo/generate-plan`, {
+      const generateResponse = await fetch(`${API_BASE}/api/generate-plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userData.id, days: DEFAULT_DAYS }),
+        body: JSON.stringify({ user_id: userData.id, days: DEFAULT_DAYS, mode: "agent_cli" }),
       });
 
       if (!generateResponse.ok) {
         const details = await generateResponse.text();
-        throw new Error(`Не удалось запустить demo-пайплайн: ${details}`);
+        throw new Error(`Не удалось запустить пайплайн: ${details}`);
       }
 
       const generation = (await generateResponse.json()) as { task_id: string };
-      await pollDemoTask(generation.task_id);
+      await pollTask(generation.task_id);
       setStatus("Готово: можно показать план, блюда и список покупок.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Неизвестная ошибка.");
-      setStatus("Демо не завершилось. Исправьте профиль или перезапустите pipeline.");
+      setStatus("Генерация не завершилась. Исправьте профиль или перезапустите pipeline.");
     } finally {
       setIsSubmitting(false);
     }
@@ -359,15 +372,14 @@ export default function NutriOnboardingApp() {
     <main className="page-shell">
       <section className="hero">
         <article className="hero-card">
-          <h1>NutriAgent Sprint 4 Demo</h1>
+          <h1>NutriAgent Agent CLI</h1>
           <p>
-            CLI-first сценарий показывает ценность продукта без внешнего LLM API: онбординг,
-            запуск пайплайна, статус этапов, готовый план, карточки блюд и агрегированный список
-            покупок.
+            Полный пользовательский сценарий: онбординг, запуск agent_cli-пайплайна, статус
+            этапов, готовый план, карточки блюд и агрегированный список покупок.
           </p>
           <div className="meta">
             <span className="pill">Onboarding</span>
-            <span className="pill">CLI-first pipeline</span>
+            <span className="pill">agent_cli pipeline</span>
             <span className="pill">Plan + Recipes + Shopping list</span>
           </div>
         </article>
@@ -375,12 +387,17 @@ export default function NutriOnboardingApp() {
         <article className="card">
           <div className="small">Шаг {Math.min(step, MAX_STEP)} из 4</div>
           <h3 style={{ marginTop: 8 }}>
-            {step < 5 ? "Подготовка демо-профиля" : "Демонстрационный план готов"}
+            {step < 5 ? "Подготовка профиля" : "План готов"}
           </h3>
           <div className="status-box">
             <strong>Статус:</strong> {status}
           </div>
           {error && <div className="error">{error}</div>}
+          {warnings.length > 0 && (
+            <div className="warning-box">
+              <strong>Важно:</strong> {warnings[0]}
+            </div>
+          )}
           <div className="kpi-row">
             <div className="kpi-card">
               <span className="small">Запуск</span>
@@ -598,7 +615,7 @@ export default function NutriOnboardingApp() {
                 )}
                 {step === MAX_STEP && (
                   <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
-                    {isSubmitting ? "Собираем демо..." : "Составить план"}
+                    {isSubmitting ? "Собираем рацион..." : "Составить план"}
                   </button>
                 )}
               </div>
@@ -615,7 +632,10 @@ export default function NutriOnboardingApp() {
                 <div className="small">Pipeline</div>
                 <h3>Статус выполнения</h3>
               </div>
-              {planId && <div className="plan-badge">plan_id: {planId}</div>}
+              <div className="plan-badge">
+                {task?.mode ? `mode: ${task.mode}` : "mode: agent_cli"}
+                {planId ? ` • plan_id: ${planId}` : ""}
+              </div>
             </div>
 
             <div className="pipeline-list">

@@ -163,6 +163,15 @@ textarea {
   color: var(--danger);
 }
 
+.warning-box {
+  margin-top: 12px;
+  border-left: 4px solid var(--warning);
+  border-radius: 0 14px 14px 0;
+  padding: 12px 14px;
+  background: rgba(179, 122, 31, 0.08);
+  color: #775118;
+}
+
 .kpi-row {
   margin-top: 16px;
 }

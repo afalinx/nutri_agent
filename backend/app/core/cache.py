@@ -7,6 +7,7 @@ Uses the same Redis instance as Celery (keys are namespaced by prefix).
 from __future__ import annotations
 
 import json
+import asyncio
 from typing import Any
 
 import redis.asyncio as aioredis
@@ -16,18 +17,25 @@ from app.config import settings
 
 PREFIX = "nutri:"
 
-_pool: aioredis.Redis | None = None
+_clients_by_loop: dict[int, aioredis.Redis] = {}
 
 
 async def get_redis() -> aioredis.Redis:
-    """Return a shared async Redis connection pool (singleton)."""
-    global _pool
-    if _pool is None:
-        _pool = aioredis.from_url(
+    """Return an async Redis client bound to the current event loop.
+
+    redis.asyncio connections are loop-bound. Reusing one global client across
+    different Celery task loops causes cross-loop futures and closed-loop errors.
+    """
+    loop = asyncio.get_running_loop()
+    loop_id = id(loop)
+    client = _clients_by_loop.get(loop_id)
+    if client is None:
+        client = aioredis.from_url(
             settings.REDIS_URL,
             decode_responses=True,
         )
-    return _pool
+        _clients_by_loop[loop_id] = client
+    return client
 
 
 async def get_json(key: str) -> Any | None:
@@ -57,8 +65,8 @@ async def delete(key: str) -> None:
 
 
 async def close() -> None:
-    """Close the Redis connection pool. Call on app shutdown."""
-    global _pool
-    if _pool is not None:
-        await _pool.aclose()
-        _pool = None
+    """Close all cached Redis clients. Call on app shutdown."""
+    clients = list(_clients_by_loop.values())
+    _clients_by_loop.clear()
+    for client in clients:
+        await client.aclose()
