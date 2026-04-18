@@ -43,6 +43,9 @@ def _build_system_prompt(
     templates: dict[str, Template],
     user_profile: dict,
     recipes: list[dict],
+    *,
+    previous_day_titles: list[str] | None = None,
+    avoid_recipe_ids: list[str] | None = None,
 ) -> str:
     recipe_dicts = [
         {
@@ -69,6 +72,8 @@ def _build_system_prompt(
     return templates["system"].render(
         **user_profile,
         recipes=recipe_dicts,
+        previous_day_titles=previous_day_titles or [],
+        avoid_recipe_ids=avoid_recipe_ids or [],
     )
 
 
@@ -175,6 +180,9 @@ async def generate_day_plan(
     user_profile: dict,
     recipes: list[dict],
     day_number: int = 1,
+    *,
+    previous_day_titles: list[str] | None = None,
+    avoid_recipe_ids: set[str] | None = None,
 ) -> GeneratedDayResult:
     """Генерирует план на 1 день с циклом рефлексии.
 
@@ -194,7 +202,13 @@ async def generate_day_plan(
     bounded_recipes = recipes[: settings.LLM_CONTEXT_RECIPE_LIMIT]
 
     templates = _load_prompt()
-    system_prompt = _build_system_prompt(templates, user_profile, bounded_recipes)
+    system_prompt = _build_system_prompt(
+        templates,
+        user_profile,
+        bounded_recipes,
+        previous_day_titles=previous_day_titles,
+        avoid_recipe_ids=sorted(avoid_recipe_ids or []),
+    )
     target_cal = user_profile["target_calories"]
 
     messages = [

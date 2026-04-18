@@ -78,7 +78,7 @@ const MAX_STEP = 4;
 const DEFAULT_DAYS = 3;
 
 function buildDemoEmail() {
-  return `demo+${Math.floor(Date.now() / 1000)}@nutriagent.local`;
+  return `demo+${Math.floor(Date.now() / 1000)}@example.com`;
 }
 
 function splitList(input: string): string[] {

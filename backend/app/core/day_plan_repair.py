@@ -46,6 +46,19 @@ def _recipe_matches_slot(recipe: dict[str, Any], slot_type: str) -> bool:
     return bool(recipe_types & _slot_compatible_types(slot_type))
 
 
+def _recipe_base_id(recipe: dict[str, Any]) -> str:
+    base_id = recipe.get("base_recipe_id")
+    if base_id:
+        return str(base_id)
+    recipe_id = str(recipe.get("id"))
+    return recipe_id.split("::", 1)[0]
+
+
+def _meal_base_id(meal: dict[str, Any]) -> str:
+    recipe_id = str(meal.get("recipe_id"))
+    return recipe_id.split("::", 1)[0]
+
+
 def _normalize_day_totals(day_plan: dict[str, Any]) -> dict[str, Any]:
     normalized = deepcopy(day_plan)
     meals = normalized.get("meals", [])
@@ -110,6 +123,7 @@ def _candidate_lists(
     schedule: list[dict[str, Any]],
     target_calories: int,
     preferred_recipe_ids: set[str],
+    avoid_recipe_base_ids: set[str],
     max_candidates_per_slot: int = 8,
 ) -> list[list[dict[str, Any]]]:
     candidate_lists: list[list[dict[str, Any]]] = []
@@ -118,6 +132,7 @@ def _candidate_lists(
         ranked = sorted(
             [recipe for recipe in recipes if _recipe_matches_slot(recipe, slot["type"])],
             key=lambda recipe: (
+                0 if _recipe_base_id(recipe) not in avoid_recipe_base_ids else 1,
                 0 if str(recipe["id"]) in preferred_recipe_ids else 1,
                 abs(float(recipe["calories"]) - slot_target),
                 recipe["title"],
@@ -133,6 +148,7 @@ def repair_day_plan(
     recipes: list[dict[str, Any]],
     meal_schedule: list[dict[str, Any]],
     target_calories: int,
+    avoid_recipe_base_ids: set[str] | None = None,
 ) -> tuple[dict[str, Any] | None, list[str], str | None]:
     """Repair a generated day plan using the current recipe pool.
 
@@ -157,6 +173,7 @@ def repair_day_plan(
         schedule=meal_schedule,
         target_calories=target_calories,
         preferred_recipe_ids=current_recipe_ids,
+        avoid_recipe_base_ids=avoid_recipe_base_ids or set(),
     )
     if not candidate_lists or any(not group for group in candidate_lists):
         return None, [], "Недостаточно рецептов для восстановления расписания."
@@ -193,8 +210,17 @@ def repair_day_plan(
             for slot, recipe in zip(meal_schedule, combination, strict=False)
             if preferred_ids_by_slot.get(slot["type"]) != str(recipe["id"])
         )
+        repeated_base_recipes = sum(
+            1
+            for recipe in combination
+            if _recipe_base_id(recipe) in (avoid_recipe_base_ids or set())
+        )
         deviation = abs(float(candidate_day["total_calories"]) - float(target_calories))
-        score = (0.0 if is_valid else 1.0, changed_slots + deviation / 1000.0)
+        score = (
+            0.0 if is_valid else 1.0,
+            repeated_base_recipes,
+            changed_slots + deviation / 1000.0,
+        )
 
         if best_score is None or score < best_score:
             best_plan = candidate_day
@@ -230,5 +256,15 @@ def repair_day_plan(
         applied_fixes.append(
             f"totals: {normalized_plan['total_calories']:.0f} -> {best_plan['total_calories']:.0f} kcal"
         )
+    if avoid_recipe_base_ids:
+        reused = [
+            meal["title"]
+            for meal in best_plan["meals"]
+            if _meal_base_id(meal) in avoid_recipe_base_ids
+        ]
+        if reused:
+            applied_fixes.append(
+                f"repeat-aware fallback kept: {', '.join(reused)}"
+            )
 
     return best_plan, applied_fixes, None

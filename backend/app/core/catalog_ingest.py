@@ -9,6 +9,7 @@ from typing import Any, Awaitable, Callable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import cache
 from app.core.recipe_catalog import RecipeCatalogError, normalize_recipe_payload
 from app.db.models import (
     Recipe,
@@ -169,6 +170,7 @@ async def admit_recipe_candidate(session: AsyncSession, *, candidate_id: str) ->
     if existing is not None:
         candidate.admitted_recipe_id = existing.id
         await session.commit()
+        await cache.delete("recipes:all")
         return existing
 
     recipe = Recipe(
@@ -191,6 +193,7 @@ async def admit_recipe_candidate(session: AsyncSession, *, candidate_id: str) ->
     await session.flush()
     candidate.admitted_recipe_id = recipe.id
     await session.commit()
+    await cache.delete("recipes:all")
     await session.refresh(recipe)
     return recipe
 

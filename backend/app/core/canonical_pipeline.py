@@ -205,6 +205,9 @@ async def load_user_profile(session: AsyncSession, user_id: str) -> dict:
     """Load a user profile from cache or database in a canonical shape."""
     cached = await cache.get_json(f"user:{user_id}")
     if cached:
+        if "id" not in cached:
+            cached["id"] = user_id
+            await cache.set_json(f"user:{user_id}", cached, ttl=600)
         return cached
 
     result = await session.execute(select(User).where(User.id == uuid.UUID(user_id)))

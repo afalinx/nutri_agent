@@ -252,3 +252,34 @@ def test_build_validation_report_uses_specific_reason_code_for_unsafe_combinatio
 
     assert report["ok"] is False
     assert report["reason_codes"] == ["unsafe_combination"]
+
+
+@pytest.mark.asyncio
+async def test_admit_recipe_candidate_invalidates_recipe_cache(monkeypatch):
+    session = _FakeSession()
+    deleted_keys: list[str] = []
+
+    async def fake_delete(key: str):
+        deleted_keys.append(key)
+
+    monkeypatch.setattr(catalog_ingest.cache, "delete", fake_delete)
+
+    candidate = await catalog_ingest.create_recipe_candidate(
+        session,
+        payload=_payload(),
+        source_url="https://example.com/recipe",
+        source_type="web",
+        submitted_by="research-agent",
+    )
+    await catalog_ingest.add_candidate_review(
+        session,
+        candidate_id=str(candidate.id),
+        verdict=RecipeReviewVerdict.accept,
+        reviewer="verification-agent",
+        reason_codes=[],
+        notes="Looks good",
+    )
+
+    await catalog_ingest.admit_recipe_candidate(session, candidate_id=str(candidate.id))
+
+    assert deleted_keys == ["recipes:all"]

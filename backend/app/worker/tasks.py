@@ -23,20 +23,25 @@ from app.core.canonical_pipeline import (
 from app.core.generation_meta import PIPELINE_STEPS, build_generation_meta
 from app.worker import celery_app
 
+_worker_loop: asyncio.AbstractEventLoop | None = None
+
 
 def _run_async(coro):
-    """Helper to run async code inside sync Celery task."""
-    loop = asyncio.new_event_loop()
-    try:
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(coro)
-    finally:
-        try:
-            loop.run_until_complete(loop.shutdown_asyncgens())
-        except Exception:
-            logger.exception("Failed to shutdown async generators cleanly")
-        asyncio.set_event_loop(None)
-        loop.close()
+    """Helper to run async code inside sync Celery task.
+
+    Celery tasks in this worker share module-level async resources such as the
+    SQLAlchemy async engine and Redis clients. Recreating and closing a brand
+    new event loop for every task makes those resources cross loop boundaries,
+    which triggers "Future attached to a different loop" / "Event loop is
+    closed" errors on later tasks. Keep one stable loop per worker process.
+    """
+    global _worker_loop
+
+    if _worker_loop is None or _worker_loop.is_closed():
+        _worker_loop = asyncio.new_event_loop()
+
+    asyncio.set_event_loop(_worker_loop)
+    return _worker_loop.run_until_complete(coro)
 
 
 def _empty_steps() -> list[dict]:

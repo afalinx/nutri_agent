@@ -112,7 +112,7 @@ async def test_agent_cli_runtime_returns_ready_and_progress(monkeypatch):
     async def fake_context(user_id: str, day: int):
         return _context(day)
 
-    async def fake_generate(user, recipes, day_number: int):
+    async def fake_generate(user, recipes, day_number: int, **kwargs):
         return _day_result(day_number, quality_status="partially_valid" if day_number == 2 else "valid")
 
     async def fake_save(user_id: str, plan_data: dict, *, days_count: int):
@@ -159,7 +159,7 @@ async def test_agent_cli_runtime_marks_failed_progress_on_validation_error(monke
     async def fake_context(user_id: str, day: int):
         return _context(day)
 
-    async def fake_generate(user, recipes, day_number: int):
+    async def fake_generate(user, recipes, day_number: int, **kwargs):
         return _day_result(day_number)
 
     monkeypatch.setattr(agent_cli_runtime, "build_context_payload", fake_context)
@@ -192,7 +192,7 @@ async def test_agent_cli_runtime_auto_fixes_duplicate_meal_types(monkeypatch):
     async def fake_context(user_id: str, day: int):
         return _context(day)
 
-    async def fake_generate(user, recipes, day_number: int):
+    async def fake_generate(user, recipes, day_number: int, **kwargs):
         return GeneratedDayResult(
             plan=DayPlanFull(
                 day_number=day_number,
@@ -332,3 +332,222 @@ async def test_agent_cli_runtime_fails_fast_on_catalog_insufficiency(monkeypatch
 
     assert progress_events[-1][0] == "GENERATING"
     assert any(step["key"] == "context" and step["status"] == "failed" for step in progress_events[-1][1]["steps"])
+
+
+@pytest.mark.asyncio
+async def test_agent_cli_runtime_auto_fix_avoids_repeating_previous_day_recipe_when_possible(
+    monkeypatch,
+):
+    contexts = {
+        1: {
+            **_context(1),
+            "available_recipes": [
+                {
+                    "id": "breakfast-a",
+                    "title": "Breakfast A",
+                    "meal_type": "breakfast",
+                    "calories": 500,
+                    "protein": 30,
+                    "fat": 15,
+                    "carbs": 45,
+                    "ingredients": [],
+                },
+                {
+                    "id": "lunch-a",
+                    "title": "Lunch A",
+                    "meal_type": "lunch",
+                    "calories": 700,
+                    "protein": 45,
+                    "fat": 20,
+                    "carbs": 60,
+                    "ingredients": [],
+                },
+                {
+                    "id": "dinner-a",
+                    "title": "Dinner A",
+                    "meal_type": "dinner",
+                    "calories": 600,
+                    "protein": 40,
+                    "fat": 20,
+                    "carbs": 50,
+                    "ingredients": [],
+                },
+                {
+                    "id": "snack-a",
+                    "title": "Snack A",
+                    "meal_type": "snack",
+                    "calories": 200,
+                    "protein": 20,
+                    "fat": 15,
+                    "carbs": 25,
+                    "ingredients": [],
+                },
+            ],
+        },
+        2: {
+            **_context(2),
+            "available_recipes": [
+                {
+                    "id": "breakfast-b",
+                    "title": "Breakfast B",
+                    "meal_type": "breakfast",
+                    "calories": 500,
+                    "protein": 30,
+                    "fat": 15,
+                    "carbs": 45,
+                    "ingredients": [],
+                },
+                {
+                    "id": "lunch-b",
+                    "title": "Lunch B",
+                    "meal_type": "lunch",
+                    "calories": 700,
+                    "protein": 45,
+                    "fat": 20,
+                    "carbs": 60,
+                    "ingredients": [],
+                },
+                {
+                    "id": "dinner-a",
+                    "title": "Dinner A",
+                    "meal_type": "dinner",
+                    "calories": 600,
+                    "protein": 40,
+                    "fat": 20,
+                    "carbs": 50,
+                    "ingredients": [],
+                },
+                {
+                    "id": "dinner-b",
+                    "title": "Dinner B",
+                    "meal_type": "dinner",
+                    "calories": 600,
+                    "protein": 40,
+                    "fat": 20,
+                    "carbs": 50,
+                    "ingredients": [],
+                },
+                {
+                    "id": "snack-a",
+                    "title": "Snack A",
+                    "meal_type": "snack",
+                    "calories": 200,
+                    "protein": 20,
+                    "fat": 15,
+                    "carbs": 25,
+                    "ingredients": [],
+                },
+                {
+                    "id": "snack-b",
+                    "title": "Snack B",
+                    "meal_type": "snack",
+                    "calories": 200,
+                    "protein": 20,
+                    "fat": 15,
+                    "carbs": 25,
+                    "ingredients": [],
+                },
+            ],
+        },
+    }
+
+    async def fake_context(user_id: str, day: int):
+        return contexts[day]
+
+    async def fake_generate(user, recipes, day_number: int, **kwargs):
+        if day_number == 1:
+            return GeneratedDayResult(
+                plan=DayPlanFull(
+                    day_number=1,
+                    total_calories=2000,
+                    total_protein=140,
+                    total_fat=70,
+                    total_carbs=180,
+                    meals=[
+                        MealItemFull(type="breakfast", time="08:00", recipe_id="breakfast-a", title="Breakfast A", calories=500, protein=30, fat=15, carbs=45, ingredients_summary=[]),
+                        MealItemFull(type="lunch", time="13:00", recipe_id="lunch-a", title="Lunch A", calories=700, protein=45, fat=20, carbs=60, ingredients_summary=[]),
+                        MealItemFull(type="dinner", time="19:00", recipe_id="dinner-a", title="Dinner A", calories=600, protein=40, fat=20, carbs=50, ingredients_summary=[]),
+                        MealItemFull(type="snack", time="16:00", recipe_id="snack-a", title="Snack A", calories=200, protein=20, fat=15, carbs=25, ingredients_summary=[]),
+                    ],
+                ),
+                quality_status="valid",
+                attempts_used=1,
+                validation_error=None,
+            )
+
+        return GeneratedDayResult(
+            plan=DayPlanFull(
+                day_number=2,
+                total_calories=2000,
+                total_protein=140,
+                total_fat=70,
+                total_carbs=180,
+                meals=[
+                    MealItemFull(type="breakfast", time="08:00", recipe_id="breakfast-b", title="Breakfast B", calories=500, protein=30, fat=15, carbs=45, ingredients_summary=[]),
+                    MealItemFull(type="lunch", time="13:00", recipe_id="lunch-b", title="Lunch B", calories=700, protein=45, fat=20, carbs=60, ingredients_summary=[]),
+                    MealItemFull(type="dinner", time="19:00", recipe_id="dinner-a", title="Dinner A", calories=600, protein=40, fat=20, carbs=50, ingredients_summary=[]),
+                    MealItemFull(type="snack", time="16:00", recipe_id="snack-a", title="Snack A", calories=200, protein=20, fat=15, carbs=25, ingredients_summary=[]),
+                ],
+            ),
+            quality_status="partially_valid",
+            attempts_used=2,
+            validation_error="Не удалось получить полностью валидный план за 2 попытки",
+        )
+
+    def fake_validate(raw_payload, *, target_calories=None, meal_schedule=None):
+        day = raw_payload["day"]
+        if day["day_number"] == 2:
+            dinner = next(meal for meal in day["meals"] if meal["type"] == "dinner")
+            snack = next(meal for meal in day["meals"] if meal["type"] == "snack")
+            if dinner["recipe_id"] == "dinner-a" or snack["recipe_id"] == "snack-a":
+                return {"valid": False, "error": "Повтор блюда между днями"}, 1
+        return {"valid": True}, 0
+
+    def fake_repair_day_plan(
+        *,
+        day_plan: dict,
+        recipes: list[dict],
+        meal_schedule: list[dict],
+        target_calories: int,
+        avoid_recipe_base_ids: set[str] | None = None,
+    ):
+        assert avoid_recipe_base_ids == {"breakfast-a", "lunch-a", "dinner-a", "snack-a"}
+        repaired_day = {
+            **day_plan,
+            "meals": [
+                {
+                    **meal,
+                    "recipe_id": "dinner-b" if meal["type"] == "dinner" else "snack-b" if meal["type"] == "snack" else meal["recipe_id"],
+                    "title": "Dinner B" if meal["type"] == "dinner" else "Snack B" if meal["type"] == "snack" else meal["title"],
+                }
+                for meal in day_plan["meals"]
+            ],
+        }
+        return repaired_day, ["repeat-aware replacement"], None
+
+    async def fake_save(user_id: str, plan_data: dict, *, days_count: int):
+        second_day = plan_data["days"][1]
+        titles = [meal["title"] for meal in second_day["meals"]]
+        assert "Dinner B" in titles
+        assert "Snack B" in titles
+        return {"plan_id": "plan-xyz", "status": "READY", "days": days_count}
+
+    monkeypatch.setattr(agent_cli_runtime, "build_context_payload", fake_context)
+    monkeypatch.setattr(agent_cli_runtime, "generate_day_plan", fake_generate)
+    monkeypatch.setattr(agent_cli_runtime, "validate_plan_payload", fake_validate)
+    monkeypatch.setattr(agent_cli_runtime, "repair_day_plan", fake_repair_day_plan)
+    monkeypatch.setattr(agent_cli_runtime, "save_plan_payload", fake_save)
+    monkeypatch.setattr(
+        agent_cli_runtime,
+        "build_shopping_list_payload",
+        lambda *args, **kwargs: [{"name": "Oats", "amount": 80.0, "unit": "g"}],
+    )
+
+    result = await agent_cli_runtime.run_agent_cli_pipeline(
+        user_id="user-1",
+        days=2,
+    )
+
+    assert result["status"] == "READY"
+    assert result["quality_status"] == "partially_valid"
+    assert any("auto-fix after" in warning for warning in result["warnings"])

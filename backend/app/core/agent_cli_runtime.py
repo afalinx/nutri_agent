@@ -20,6 +20,69 @@ from app.core.generation_meta import PIPELINE_STEPS, build_generation_meta
 ProgressCallback = Callable[[dict[str, Any], str], None]
 
 
+def _recipe_base_id(recipe: dict[str, Any]) -> str:
+    base_id = recipe.get("base_recipe_id")
+    if base_id:
+        return str(base_id)
+    recipe_id = str(recipe.get("id"))
+    return recipe_id.split("::", 1)[0]
+
+
+def _meal_base_id(meal: dict[str, Any]) -> str:
+    recipe_id = str(meal.get("recipe_id"))
+    return recipe_id.split("::", 1)[0]
+
+
+def _normalize_meal_type(value: str | None) -> set[str]:
+    if not value:
+        return set()
+    return {
+        chunk.strip().lower()
+        for chunk in value.replace(",", "/").split("/")
+        if chunk.strip()
+    }
+
+
+def _slot_compatible_types(slot_type: str) -> set[str]:
+    if slot_type == "breakfast":
+        return {"breakfast"}
+    if slot_type == "snack":
+        return {"snack", "second_snack"}
+    if slot_type == "second_snack":
+        return {"snack", "second_snack"}
+    if slot_type == "lunch":
+        return {"lunch", "lunch/dinner", "universal"}
+    if slot_type == "dinner":
+        return {"dinner", "lunch/dinner", "universal"}
+    return {slot_type}
+
+
+def _validate_day_recipe_usage(
+    *,
+    day_plan: dict[str, Any],
+    recipes: list[dict[str, Any]],
+    previous_recipe_base_ids: set[str] | None = None,
+) -> str | None:
+    recipes_by_id = {str(recipe["id"]): recipe for recipe in recipes}
+
+    for meal in day_plan.get("meals", []):
+        recipe = recipes_by_id.get(str(meal.get("recipe_id")))
+        if recipe is None:
+            return f"Рецепт {meal.get('recipe_id')} отсутствует в доступном контексте."
+
+        recipe_types = _normalize_meal_type(recipe.get("meal_type"))
+        if not recipe_types & _slot_compatible_types(str(meal.get("type"))):
+            return (
+                f"Рецепт '{recipe.get('title')}' с meal_type={recipe.get('meal_type')} "
+                f"нельзя использовать для слота {meal.get('type')}."
+            )
+
+        if previous_recipe_base_ids and _recipe_base_id(recipe) in previous_recipe_base_ids:
+            return f"Повтор блюда между днями: {recipe.get('title')}"
+
+    return None
+
+
 def _empty_steps() -> list[dict[str, Any]]:
     return [{"key": step, "status": "pending", "message": ""} for step in PIPELINE_STEPS]
 
@@ -72,6 +135,9 @@ async def run_agent_cli_pipeline(
     current_recipes: list[dict[str, Any]] = []
     recipes_by_day: dict[int, list[dict[str, Any]]] = {}
     catalog_diagnostics_by_day: dict[int, dict[str, Any]] = {}
+    used_recipe_base_ids: set[str] = set()
+    previous_day_titles: list[str] = []
+    avoid_recipe_base_ids_by_day: dict[int, set[str]] = {}
 
     try:
         _set_step(state, "context", status="running", message="Готовим CLI-контекст для агента.")
@@ -107,12 +173,22 @@ async def run_agent_cli_pipeline(
         for day_number in range(1, days + 1):
             context = await build_context_payload(user_id, day=day_number)
             shared_user = context["user"]
-            recipes_by_day[day_number] = context["available_recipes"]
+            day_recipes = sorted(
+                context["available_recipes"],
+                key=lambda recipe: (
+                    _recipe_base_id(recipe) in used_recipe_base_ids,
+                    recipe.get("title", ""),
+                ),
+            )
+            avoid_recipe_base_ids_by_day[day_number] = set(used_recipe_base_ids)
             catalog_diagnostics_by_day[day_number] = context.get("catalog_diagnostics") or {}
+            recipes_by_day[day_number] = day_recipes
             day_result = await generate_day_plan(
                 context["user"],
-                context["available_recipes"],
+                day_recipes,
                 day_number=day_number,
+                previous_day_titles=previous_day_titles,
+                avoid_recipe_ids=used_recipe_base_ids,
             )
             generated_days.append(day_result.plan.model_dump())
             day_generation_meta.append(
@@ -127,6 +203,9 @@ async def run_agent_cli_pipeline(
                 state["quality_status"] = "partially_valid"
             if day_result.validation_error:
                 warnings.append(f"Day {day_number}: {day_result.validation_error}")
+            for meal in generated_days[-1].get("meals", []):
+                used_recipe_base_ids.add(_meal_base_id(meal))
+                previous_day_titles.append(meal.get("title", ""))
 
         _set_step(
             state,
@@ -145,6 +224,17 @@ async def run_agent_cli_pipeline(
         validation_errors: list[str] = []
         days_to_repair: list[tuple[int, str]] = []
         for day in generated_days:
+            usage_error = _validate_day_recipe_usage(
+                day_plan=day,
+                recipes=recipes_by_day.get(day["day_number"], current_recipes),
+                previous_recipe_base_ids=avoid_recipe_base_ids_by_day.get(day["day_number"], set()),
+            )
+            if usage_error:
+                error = f"Day {day['day_number']}: {usage_error}"
+                validation_errors.append(error)
+                days_to_repair.append((day["day_number"], usage_error))
+                continue
+
             validation_payload = {
                 "daily_target_calories": shared_user["target_calories"],
                 "day": day,
@@ -181,6 +271,7 @@ async def run_agent_cli_pipeline(
                     recipes=recipes_by_day.get(day_number, current_recipes),
                     meal_schedule=shared_user.get("meal_schedule") or [],
                     target_calories=shared_user["target_calories"],
+                    avoid_recipe_base_ids=avoid_recipe_base_ids_by_day.get(day_number, set()),
                 )
                 if repaired_day is None:
                     _set_step(
@@ -204,6 +295,19 @@ async def run_agent_cli_pipeline(
                     "daily_target_calories": shared_user["target_calories"],
                     "day": repaired_day,
                 }
+                usage_error = _validate_day_recipe_usage(
+                    day_plan=repaired_day,
+                    recipes=recipes_by_day.get(day_number, current_recipes),
+                    previous_recipe_base_ids=avoid_recipe_base_ids_by_day.get(day_number, set()),
+                )
+                if usage_error:
+                    _set_step(
+                        state,
+                        "auto-fix",
+                        status="failed",
+                        message=usage_error,
+                    )
+                    raise RuntimeError(f"Day {day_number}: {usage_error}")
                 result, exit_code = validate_plan_payload(
                     validation_payload,
                     target_calories=shared_user["target_calories"],
@@ -267,6 +371,7 @@ async def run_agent_cli_pipeline(
         _emit_progress(progress_callback, state)
         save_result = await save_plan_payload(user_id, plan_data, days_count=days)
         plan_id = save_result["plan_id"]
+        state["plan_id"] = plan_id
 
         _set_step(state, "save", status="completed", message=f"План сохранён: {plan_id}.")
         _set_step(state, "shopping-list", status="running", message="Строим shopping list из плана.")

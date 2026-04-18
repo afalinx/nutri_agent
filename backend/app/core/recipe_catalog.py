@@ -7,6 +7,7 @@ portion-scaling layer from obviously broken, unsafe or absurd recipe payloads.
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
@@ -32,6 +33,10 @@ _MEAL_TYPE_ALIASES = {
     "dessert": "snack",
     "desert": "snack",
     "desserts": "snack",
+    "main": "dinner",
+    "main dish": "dinner",
+    "main_course": "dinner",
+    "main course": "dinner",
 }
 _BANNED_INGREDIENT_TERMS = {
     "penis",
@@ -77,6 +82,8 @@ _INGREDIENT_GROUP_MARKERS = {
     "chocolate": ("шоколад", "какао плит", "шоколадн"),
 }
 
+_NUMBER_RE = re.compile(r"-?\d+(?:[.,]\d+)?")
+
 
 class RecipeCatalogError(ValueError):
     """Raised when a recipe payload is not acceptable for the catalog."""
@@ -110,6 +117,17 @@ class IngredientPayload(BaseModel):
     name: str
     amount: float = Field(gt=0)
     unit: str
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _normalize_amount(cls, value: Any) -> float:
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            match = _NUMBER_RE.search(value.strip())
+            if match:
+                return float(match.group(0).replace(",", "."))
+        raise RecipeCatalogError("Input should be a valid number")
 
     @field_validator("name")
     @classmethod
@@ -155,6 +173,17 @@ class RecipePayload(BaseModel):
     ingredients_short: str | None = None
     prep_time_min: int | None = Field(default=None, ge=1, le=360)
     category: str | None = None
+
+    @field_validator("calories", "protein", "fat", "carbs", mode="before")
+    @classmethod
+    def _normalize_macro_numbers(cls, value: Any) -> float:
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            match = _NUMBER_RE.search(value.strip())
+            if match:
+                return float(match.group(0).replace(",", "."))
+        raise RecipeCatalogError("Input should be a valid number")
 
     @field_validator("title")
     @classmethod

@@ -85,6 +85,46 @@ def test_normalize_recipe_payload_maps_dessert_meal_type_to_snack():
     assert normalized["meal_type"] == "snack"
 
 
+def test_normalize_recipe_payload_maps_main_meal_type_to_dinner():
+    payload = {
+        "title": "Азу по-татарски",
+        "ingredients": [
+            {"name": "Говядина", "amount": 300, "unit": "g"},
+            {"name": "Картофель", "amount": 250, "unit": "g"},
+        ],
+        "calories": 637,
+        "protein": 33,
+        "fat": 29,
+        "carbs": 66,
+        "meal_type": "main",
+    }
+
+    normalized = normalize_recipe_payload(payload)
+
+    assert normalized["meal_type"] == "dinner"
+
+
+def test_normalize_recipe_payload_parses_numeric_strings():
+    payload = {
+        "title": "Тыквенный пирог",
+        "ingredients": [
+            {"name": "Тыква", "amount": "500 г", "unit": "g"},
+            {"name": "Мука", "amount": "200", "unit": "g"},
+        ],
+        "calories": "652 ккал",
+        "protein": "10",
+        "fat": "37,0",
+        "carbs": "72",
+        "meal_type": "snack",
+    }
+
+    normalized = normalize_recipe_payload(payload)
+
+    assert normalized["calories"] == 652.0
+    assert normalized["fat"] == 37.0
+    assert normalized["ingredients"][0]["amount"] == 500.0
+
+
 def test_normalize_recipe_payload_rejects_unsafe_dairy_with_pickles():
     payload = {
         "title": "Окрошка на молоке",

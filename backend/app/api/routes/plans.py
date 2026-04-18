@@ -111,6 +111,7 @@ async def get_task_status(task_id: str):
 
     response = TaskStatusResponse(task_id=task_id, status=status)
     progress_meta = result.info if isinstance(result.info, dict) else {}
+    response.plan_id = progress_meta.get("plan_id")
     response.mode = progress_meta.get("mode")
     response.quality_status = progress_meta.get("quality_status")
     response.current_step = progress_meta.get("current_step")
