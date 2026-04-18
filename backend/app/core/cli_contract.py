@@ -23,10 +23,14 @@ async def build_context_payload(user_id: str, day: int = 1) -> dict[str, Any]:
     """Build the same context payload that the CLI exposes to an agent."""
     async with async_session() as session:
         user = await load_user_profile(session, user_id)
+        recipe_limit = max(
+            settings.LLM_CONTEXT_RECIPE_LIMIT,
+            settings.AGENT_CLI_MIN_CONTEXT_RECIPE_LIMIT,
+        )
         recipes = await load_candidate_recipes(
             session,
             user,
-            limit=settings.LLM_CONTEXT_RECIPE_LIMIT,
+            limit=recipe_limit,
         )
 
     recipe_list = [

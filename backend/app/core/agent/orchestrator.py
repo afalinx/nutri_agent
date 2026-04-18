@@ -199,7 +199,11 @@ async def generate_day_plan(
     if not recipes:
         raise RuntimeError("No recipes available for generation after profile filters")
 
-    bounded_recipes = recipes[: settings.LLM_CONTEXT_RECIPE_LIMIT]
+    recipe_context_limit = max(
+        settings.LLM_CONTEXT_RECIPE_LIMIT,
+        settings.AGENT_CLI_MIN_CONTEXT_RECIPE_LIMIT,
+    )
+    bounded_recipes = recipes[:recipe_context_limit]
 
     templates = _load_prompt()
     system_prompt = _build_system_prompt(

@@ -148,6 +148,7 @@ type QuickAction = {
 
 const API_BASE = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 const STORAGE_KEY = "nutri-agent/mobile-session/v2";
+const PLAN_DAYS = 3;
 const ONBOARDING_STEPS = 4;
 
 const emptyOnboardingForm: OnboardingForm = {
@@ -888,7 +889,7 @@ export default function NutriOnboardingApp() {
       const generateResponse = await fetch(`${API_BASE}/api/generate-plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: createdUser.id, days: 7 }),
+        body: JSON.stringify({ user_id: createdUser.id, days: PLAN_DAYS }),
       });
 
       if (!generateResponse.ok) {
@@ -926,7 +927,7 @@ export default function NutriOnboardingApp() {
       const response = await fetch(`${API_BASE}/api/generate-plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: user.id, days: 7 }),
+        body: JSON.stringify({ user_id: user.id, days: PLAN_DAYS }),
       });
 
       if (!response.ok) {
@@ -1460,7 +1461,7 @@ export default function NutriOnboardingApp() {
     const actions: QuickAction[] = [
       {
         label: "Weekly Plan",
-        description: "Review all 7 days and switch by date.",
+        description: `Review all ${PLAN_DAYS} generated days and switch by date.`,
         icon: <CalendarIcon className="icon" />,
         onClick: () => pushScreen({ name: "weekly" }),
       },
