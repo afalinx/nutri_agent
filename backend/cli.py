@@ -12,10 +12,7 @@ CLI для NutriAgent — работает без внешнего LLM API.
 
 import argparse
 import asyncio
-import json
 import sys
-import uuid
-from datetime import date, timedelta
 from pathlib import Path
 
 # Ensure app is importable
@@ -26,6 +23,13 @@ from loguru import logger
 logger.remove()
 
 from app.db.session import async_session, engine  # noqa: E402
+from app.core.cli_contract import (  # noqa: E402
+    build_context_payload,
+    build_shopping_list_payload,
+    dump_json,
+    save_plan_payload,
+    validate_plan_payload,
+)
 
 engine.echo = False
 
@@ -38,101 +42,8 @@ def _run(coro):
 
 
 async def _context(user_id: str, day: int):
-    from sqlalchemy import select
-
-    from app.core.rag.retriever import search_recipes
-    from app.db.models import User
-
-    async with async_session() as session:
-        result = await session.execute(select(User).where(User.id == uuid.UUID(user_id)))
-        user = result.scalar_one_or_none()
-        if not user:
-            print(f"Error: user {user_id} not found", file=sys.stderr)
-            sys.exit(1)
-
-        recipes = await search_recipes(
-            session,
-            allergies=user.allergies,
-            dislikes=user.disliked_ingredients,
-            preferred_tags=user.preferences,
-            diseases=user.diseases,
-            limit=30,
-        )
-
-        recipe_list = []
-        for r in recipes:
-            # retriever now returns dicts (from cache/in-memory filtering)
-            if isinstance(r, dict):
-                recipe_list.append(
-                    {
-                        "id": r["id"],
-                        "title": r["title"],
-                        "calories": r["calories"],
-                        "protein": r["protein"],
-                        "fat": r["fat"],
-                        "carbs": r["carbs"],
-                        "tags": r.get("tags", []),
-                        "ingredients": r.get("ingredients", []),
-                        "meal_type": r.get("meal_type"),
-                        "ingredients_short": r.get("ingredients_short", ""),
-                    }
-                )
-            else:
-                recipe_list.append(
-                    {
-                        "id": str(r.id),
-                        "title": r.title,
-                        "calories": r.calories,
-                        "protein": r.protein,
-                        "fat": r.fat,
-                        "carbs": r.carbs,
-                        "tags": r.tags or [],
-                        "ingredients": r.ingredients,
-                        "meal_type": r.meal_type,
-                        "ingredients_short": r.ingredients_short or "",
-                    }
-                )
-
-        context = {
-            "user": {
-                "id": str(user.id),
-                "gender": user.gender.value,
-                "age": user.age,
-                "weight_kg": user.weight_kg,
-                "height_cm": user.height_cm,
-                "goal": user.goal.value,
-                "target_calories": user.target_calories,
-                "allergies": user.allergies or [],
-                "preferences": user.preferences or [],
-                "disliked_ingredients": user.disliked_ingredients or [],
-                "diseases": user.diseases or [],
-            },
-            "day_number": day,
-            "available_recipes": recipe_list,
-            "output_schema": {
-                "daily_target_calories": "int",
-                "day": {
-                    "day_number": "int",
-                    "total_calories": "float",
-                    "total_protein": "float",
-                    "total_fat": "float",
-                    "total_carbs": "float",
-                    "meals": [
-                        {
-                            "type": "breakfast|lunch|dinner|snack",
-                            "recipe_id": "uuid из available_recipes",
-                            "title": "str",
-                            "calories": "float",
-                            "protein": "float",
-                            "fat": "float",
-                            "carbs": "float",
-                        }
-                    ],
-                },
-            },
-        }
-
-        print(json.dumps(context, ensure_ascii=False, indent=2))
+    context = await build_context_payload(user_id, day)
+    print(dump_json(context))
 
 
 def cmd_context(args):
@@ -143,67 +54,22 @@ def cmd_context(args):
 
 
 def cmd_validate(args):
-    from app.core.agent.schemas import MealPlanOutput
-    from app.core.skills.validator import validate_day_plan
-
     raw = sys.stdin.read() if args.file == "-" else Path(args.file).read_text()
-
-    try:
-        output = MealPlanOutput.model_validate_json(raw)
-    except Exception as e:
-        print(json.dumps({"valid": False, "error": f"Parse error: {e}"}))
-        sys.exit(1)
-
-    target = args.target_calories or output.daily_target_calories
-    is_valid, error = validate_day_plan(output.day, target)
-    deviation_pct = (
-        round(abs(output.day.total_calories - target) / target * 100, 1) if target > 0 else None
-    )
-
-    result = {
-        "valid": is_valid,
-        "total_calories": output.day.total_calories,
-        "target_calories": target,
-        "deviation_pct": deviation_pct,
-        "meals_count": len(output.day.meals),
-    }
-    if error:
-        result["error"] = error
-
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-    sys.exit(0 if is_valid else 1)
+    result, exit_code = validate_plan_payload(raw, target_calories=args.target_calories)
+    print(dump_json(result))
+    sys.exit(exit_code)
 
 
 # ──────────────────── save ────────────────────
 
 
 async def _save(user_id: str, plan_file: str, days_count: int):
-    from app.db.models import MealPlan, MealPlanStatus
+    import json
 
     raw = sys.stdin.read() if plan_file == "-" else Path(plan_file).read_text()
     plan_data = json.loads(raw)
-
-    async with async_session() as session:
-        plan = MealPlan(
-            user_id=uuid.UUID(user_id),
-            status=MealPlanStatus.ready,
-            start_date=date.today(),
-            end_date=date.today() + timedelta(days=days_count - 1),
-            plan_data=plan_data,
-        )
-        session.add(plan)
-        await session.commit()
-        await session.refresh(plan)
-
-        print(
-            json.dumps(
-                {
-                    "plan_id": str(plan.id),
-                    "status": "READY",
-                    "days": days_count,
-                }
-            )
-        )
+    result = await save_plan_payload(user_id, plan_data, days_count=days_count)
+    print(dump_json(result))
 
 
 def cmd_save(args):
@@ -234,34 +100,17 @@ def cmd_users(args):
 
 
 def cmd_shopping(args):
-    from app.core.skills.aggregator import aggregate_shopping_list
+    import json
 
     raw = sys.stdin.read() if args.file == "-" else Path(args.file).read_text()
     plan_data = json.loads(raw)
-    if args.day_format or args.input_format == "day":
-        if "day" not in plan_data:
-            print(
-                json.dumps(
-                    {"error": "Expected day-format JSON with top-level key 'day'"},
-                    ensure_ascii=False,
-                ),
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        plan_data = {
-            "total_days": 1,
-            "daily_target_calories": plan_data.get("daily_target_calories"),
-            "days": [plan_data["day"]],
-        }
-    elif args.input_format == "auto" and "day" in plan_data and "days" not in plan_data:
-        plan_data = {
-            "total_days": 1,
-            "daily_target_calories": plan_data.get("daily_target_calories"),
-            "days": [plan_data["day"]],
-        }
-
-    items = aggregate_shopping_list(plan_data)
-    print(json.dumps(items, ensure_ascii=False, indent=2))
+    input_format = "day" if args.day_format else args.input_format
+    try:
+        items = build_shopping_list_payload(plan_data, input_format=input_format)
+    except ValueError as exc:
+        print(dump_json({"error": str(exc)}), file=sys.stderr)
+        sys.exit(1)
+    print(dump_json(items))
 
 
 # ──────────────────── main ────────────────────

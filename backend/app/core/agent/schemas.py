@@ -20,7 +20,7 @@ class MealItem(BaseModel):
 
     type: str = Field(description="breakfast, lunch, dinner, snack, second_snack")
     time: str = Field(description="HH:MM — время приёма пищи")
-    recipe_id: str = Field(description="UUID рецепта из базы")
+    recipe_id: str = Field(description="Идентификатор рецепта из provided recipe list")
     title: str
     calories: float = Field(ge=0)
     protein: float = Field(ge=0)

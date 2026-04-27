@@ -1,0 +1,45 @@
+defaults:
+  require_https: true
+  max_urls_per_run: 100
+  max_pages_per_domain: 50
+
+domains:
+  - domain: eda.ru
+    trust_level: trusted_editorial
+    locale: ru
+    aliases:
+      - eda.rambler.ru
+    methods:
+      - sitemap
+      - category_pages
+    category_entrypoints:
+      - "/recepty"
+      - "/recepty/supy"
+    recipe_url_patterns:
+      - "/recepty/"
+    recipe_url_regexes:
+      - "^/recepty/[^/?#]+/[^/?#]+-\\d+$"
+    blocked_path_patterns:
+      - "/media/"
+      - "/master-klass/"
+      - "/video/"
+      - "/tag/"
+      - "/search"
+
+  - domain: gastronom.ru
+    trust_level: trusted_editorial
+    locale: ru
+    methods:
+      - sitemap
+      - category_pages
+    category_entrypoints:
+      - "/recipe"
+    recipe_url_patterns:
+      - "/recipe/"
+    recipe_url_regexes:
+      - "^/recipe/\\d+/[^/?#]+$"
+    blocked_path_patterns:
+      - "/text/"
+      - "/product/"
+      - "/restaurant/"
+      - "/search"

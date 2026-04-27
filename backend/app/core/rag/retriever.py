@@ -142,6 +142,11 @@ def _recipe_matches_keyword(recipe: dict, keyword: str) -> bool:
     return kw in recipe.get("ingredients_short", "").lower()
 
 
+def _matches_preferred_tags(recipe: dict, preferred_tags: list[str]) -> bool:
+    recipe_tags = {tag.strip() for tag in (recipe.get("tags") or []) if tag.strip()}
+    return any(tag in recipe_tags for tag in preferred_tags)
+
+
 async def search_recipes(
     session: AsyncSession,
     allergies: list[str] | None = None,
@@ -201,18 +206,16 @@ async def search_recipes(
     )
 
     if all_preferred_tags:
-        preferred = [
-            r
-            for r in safe_recipes
-            if any(tag in (r.get("tags") or []) for tag in all_preferred_tags)
-        ]
+        preferred = [r for r in safe_recipes if _matches_preferred_tags(r, all_preferred_tags)]
         if preferred:
+            fallback = [r for r in safe_recipes if not _matches_preferred_tags(r, all_preferred_tags)]
             logger.debug(
-                "RAG: {} recipes match preferred_tags {}",
+                "RAG: {} recipes match preferred_tags {}, adding {} fallback recipes for coverage",
                 len(preferred),
                 all_preferred_tags,
+                min(len(fallback), max(limit - len(preferred), 0)),
             )
-            return preferred[:limit]
+            return [*preferred, *fallback][:limit]
         logger.debug("RAG: no preferred tag matches, using all {} safe recipes", len(safe_recipes))
 
     logger.debug(

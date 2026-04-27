@@ -53,6 +53,25 @@ class MealPlanStatus(str, enum.Enum):
     failed = "FAILED"
 
 
+class RecipeCandidateStatus(str, enum.Enum):
+    pending = "PENDING"
+    review = "REVIEW"
+    accepted = "ACCEPTED"
+    rejected = "REJECTED"
+
+
+class RecipeReviewVerdict(str, enum.Enum):
+    accept = "ACCEPT"
+    review = "REVIEW"
+    reject = "REJECT"
+
+
+class SourceCandidateStatus(str, enum.Enum):
+    pending = "PENDING"
+    accepted = "ACCEPTED"
+    rejected = "REJECTED"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -102,6 +121,73 @@ class Recipe(Base):
     category = Column(String(100), nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class RecipeCandidate(Base):
+    __tablename__ = "recipe_candidates"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    source_url = Column(String(1000), nullable=True)
+    source_type = Column(String(100), nullable=True)
+    source_snapshot = Column(JSONB, nullable=True)
+    provenance = Column(JSONB, nullable=True)
+    payload = Column(JSONB, nullable=False)
+    normalized_payload = Column(JSONB, nullable=True)
+    validation_report = Column(JSONB, nullable=True)
+    status = Column(
+        Enum(RecipeCandidateStatus),
+        default=RecipeCandidateStatus.pending,
+        nullable=False,
+    )
+    submitted_by = Column(String(100), nullable=True)
+    admitted_recipe_id = Column(UUID(as_uuid=True), ForeignKey("recipes.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    admitted_recipe = relationship("Recipe")
+    reviews = relationship(
+        "RecipeCandidateReview",
+        back_populates="candidate",
+        cascade="all, delete-orphan",
+    )
+
+
+class SourceCandidate(Base):
+    __tablename__ = "source_candidates"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    url = Column(String(1000), nullable=False)
+    domain = Column(String(255), nullable=False)
+    source_type = Column(String(100), nullable=False)
+    discovery_query = Column(String(255), nullable=True)
+    discovery_payload = Column(JSONB, nullable=True)
+    source_snapshot = Column(JSONB, nullable=True)
+    provenance = Column(JSONB, nullable=True)
+    validation_report = Column(JSONB, nullable=True)
+    status = Column(
+        Enum(SourceCandidateStatus),
+        default=SourceCandidateStatus.pending,
+        nullable=False,
+    )
+    discovered_by = Column(String(100), nullable=True)
+    linked_candidate_id = Column(UUID(as_uuid=True), ForeignKey("recipe_candidates.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    linked_candidate = relationship("RecipeCandidate")
+
+
+class RecipeCandidateReview(Base):
+    __tablename__ = "recipe_candidate_reviews"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("recipe_candidates.id"), nullable=False)
+    reviewer = Column(String(100), nullable=True)
+    verdict = Column(Enum(RecipeReviewVerdict), nullable=False)
+    reason_codes = Column(ARRAY(String), default=list)
+    notes = Column(Text, nullable=True)
+    review_payload = Column(JSONB, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    candidate = relationship("RecipeCandidate", back_populates="reviews")
 
 
 class MealPlan(Base):

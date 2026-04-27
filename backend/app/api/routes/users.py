@@ -27,6 +27,8 @@ def _normalize_profile_lists(user: User) -> User:
 
 def _build_profile_cache(user: User) -> dict:
     return {
+        "id": str(user.id),
+        "email": user.email,
         "gender": user.gender.value,
         "age": user.age,
         "weight_kg": user.weight_kg,

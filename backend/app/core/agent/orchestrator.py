@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,15 @@ from app.core.agent.schemas import DayPlan, DayPlanFull, MealItemFull, MealPlanO
 from app.core.skills.validator import validate_day_plan
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
-MAX_RETRIES = 3
+MAX_RETRIES = settings.LLM_MAX_RETRIES
+
+
+@dataclass
+class GeneratedDayResult:
+    plan: DayPlanFull
+    quality_status: str
+    attempts_used: int
+    validation_error: str | None = None
 
 
 def _load_prompt() -> dict[str, Template]:
@@ -34,6 +43,9 @@ def _build_system_prompt(
     templates: dict[str, Template],
     user_profile: dict,
     recipes: list[dict],
+    *,
+    previous_day_titles: list[str] | None = None,
+    avoid_recipe_ids: list[str] | None = None,
 ) -> str:
     recipe_dicts = [
         {
@@ -60,13 +72,15 @@ def _build_system_prompt(
     return templates["system"].render(
         **user_profile,
         recipes=recipe_dicts,
+        previous_day_titles=previous_day_titles or [],
+        avoid_recipe_ids=avoid_recipe_ids or [],
     )
 
 
 async def _call_llm(messages: list[dict]) -> str:
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT_SEC) as client:
         response = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
+            f"{settings.OPENROUTER_BASE_URL}/chat/completions",
             headers={
                 "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
                 "Content-Type": "application/json",
@@ -75,6 +89,7 @@ async def _call_llm(messages: list[dict]) -> str:
                 "model": settings.LLM_MODEL_NAME,
                 "messages": messages,
                 "temperature": 0,
+                "max_tokens": settings.LLM_MAX_OUTPUT_TOKENS,
                 "response_format": {"type": "json_object"},
             },
         )
@@ -86,8 +101,16 @@ async def _call_llm(messages: list[dict]) -> str:
 def _append_retry_feedback(
     messages: list[dict[str, Any]], assistant_raw: str, feedback: str
 ) -> None:
-    messages.append({"role": "assistant", "content": assistant_raw})
+    preview = assistant_raw.strip()
+    if len(preview) > settings.LLM_RETRY_RESPONSE_PREVIEW_CHARS:
+        preview = f"{preview[: settings.LLM_RETRY_RESPONSE_PREVIEW_CHARS]}..."
+    if preview:
+        messages.append({"role": "assistant", "content": preview})
     messages.append({"role": "user", "content": feedback})
+    retry_pairs = messages[2:]
+    keep = settings.LLM_RETRY_HISTORY_LIMIT * 2
+    if keep > 0 and len(retry_pairs) > keep:
+        del messages[2 : len(messages) - keep]
 
 
 def _parse_response(raw: str) -> MealPlanOutput:
@@ -140,11 +163,27 @@ def _enrich_day_plan(plan: DayPlan, recipes: list[dict]) -> DayPlanFull:
     )
 
 
+def _normalize_day_totals(plan: DayPlan) -> DayPlan:
+    """Recalculate aggregate day macros from meals before validation/save.
+
+    These totals are deterministic derived fields. Keeping them server-side avoids
+    wasting retries on arithmetic drift in the model output.
+    """
+    plan.total_calories = round(sum(meal.calories for meal in plan.meals))
+    plan.total_protein = round(sum(meal.protein for meal in plan.meals), 1)
+    plan.total_fat = round(sum(meal.fat for meal in plan.meals), 1)
+    plan.total_carbs = round(sum(meal.carbs for meal in plan.meals), 1)
+    return plan
+
+
 async def generate_day_plan(
     user_profile: dict,
     recipes: list[dict],
     day_number: int = 1,
-) -> DayPlanFull:
+    *,
+    previous_day_titles: list[str] | None = None,
+    avoid_recipe_ids: set[str] | None = None,
+) -> GeneratedDayResult:
     """Генерирует план на 1 день с циклом рефлексии.
 
     Args:
@@ -160,13 +199,32 @@ async def generate_day_plan(
     if not recipes:
         raise RuntimeError("No recipes available for generation after profile filters")
 
+    recipe_context_limit = max(
+        settings.LLM_CONTEXT_RECIPE_LIMIT,
+        settings.AGENT_CLI_MIN_CONTEXT_RECIPE_LIMIT,
+    )
+    bounded_recipes = recipes[:recipe_context_limit]
+
     templates = _load_prompt()
-    system_prompt = _build_system_prompt(templates, user_profile, recipes)
+    system_prompt = _build_system_prompt(
+        templates,
+        user_profile,
+        bounded_recipes,
+        previous_day_titles=previous_day_titles,
+        avoid_recipe_ids=sorted(avoid_recipe_ids or []),
+    )
     target_cal = user_profile["target_calories"]
 
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"Составь план питания на день {day_number}. Верни JSON."},
+        {
+            "role": "user",
+            "content": (
+                f"Составь план питания на день {day_number}. "
+                "Верни только JSON-объект c ключами daily_target_calories и day. "
+                "Ключ day должен быть объектом, не строкой."
+            ),
+        },
     ]
 
     best_plan: DayPlan | None = None
@@ -183,6 +241,7 @@ async def generate_day_plan(
             output = _parse_response(raw_response)
             plan = output.day
             plan.day_number = day_number
+            plan = _normalize_day_totals(plan)
 
         except httpx.HTTPError as e:
             logger.error("LLM request failed on attempt {}: {}", attempt, e)
@@ -211,7 +270,11 @@ async def generate_day_plan(
 
         if is_valid:
             logger.info("Day {} generated successfully on attempt {}", day_number, attempt)
-            return _enrich_day_plan(plan, recipes)
+            return GeneratedDayResult(
+                plan=_enrich_day_plan(plan, bounded_recipes),
+                quality_status="valid",
+                attempts_used=attempt,
+            )
 
         logger.warning("Validation failed on attempt {}: {}", attempt, error_msg)
 
@@ -227,6 +290,14 @@ async def generate_day_plan(
             MAX_RETRIES,
             best_deviation,
         )
-        return _enrich_day_plan(best_plan, recipes)
+        return GeneratedDayResult(
+            plan=_enrich_day_plan(best_plan, bounded_recipes),
+            quality_status="partially_valid",
+            attempts_used=MAX_RETRIES,
+            validation_error=(
+                f"Не удалось получить полностью валидный план за {MAX_RETRIES} попытки, "
+                f"возвращён лучший доступный вариант."
+            ),
+        )
 
     raise RuntimeError(f"Failed to generate valid plan after {MAX_RETRIES} attempts")

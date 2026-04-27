@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
+from typing import Literal
 
 from celery.result import AsyncResult
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -27,6 +28,7 @@ router = APIRouter(prefix="/api", tags=["Plans"])
 class GeneratePlanRequest(BaseModel):
     user_id: uuid.UUID
     days: int = Field(default=7, ge=1, le=14)
+    mode: Literal["agent_cli", "llm_direct"] = "agent_cli"
 
 
 class GeneratePlanResponse(BaseModel):
@@ -37,6 +39,11 @@ class TaskStatusResponse(BaseModel):
     task_id: str
     status: str
     plan_id: str | None = None
+    mode: str | None = None
+    quality_status: str | None = None
+    current_step: str | None = None
+    steps: list[DemoStepResponse] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
     error: str | None = None
 
 
@@ -59,6 +66,9 @@ class PlanResponse(BaseModel):
     start_date: date | None
     end_date: date | None
     plan_data: dict | None
+    mode: str | None = None
+    quality_status: str | None = None
+    warnings: list[str] = Field(default_factory=list)
     model_config = {"from_attributes": True}
 
 
@@ -66,9 +76,14 @@ class PlanResponse(BaseModel):
 async def generate_plan(data: GeneratePlanRequest):
     task = celery_app.send_task(
         "generate_meal_plan",
-        args=[str(data.user_id), data.days],
+        args=[str(data.user_id), data.days, data.mode],
     )
-    logger.info("Plan generation queued: task_id={} user_id={}", task.id, data.user_id)
+    logger.info(
+        "Plan generation queued: task_id={} user_id={} mode={}",
+        task.id,
+        data.user_id,
+        data.mode,
+    )
     return GeneratePlanResponse(task_id=task.id)
 
 
@@ -95,9 +110,21 @@ async def get_task_status(task_id: str):
     status = status_map.get(result.state, result.state)
 
     response = TaskStatusResponse(task_id=task_id, status=status)
+    progress_meta = result.info if isinstance(result.info, dict) else {}
+    response.plan_id = progress_meta.get("plan_id")
+    response.mode = progress_meta.get("mode")
+    response.quality_status = progress_meta.get("quality_status")
+    response.current_step = progress_meta.get("current_step")
+    response.steps = progress_meta.get("steps") or []
+    response.warnings = progress_meta.get("warnings") or []
 
     if result.state == "SUCCESS" and result.result:
         response.plan_id = result.result.get("plan_id")
+        response.mode = result.result.get("mode") or response.mode
+        response.quality_status = result.result.get("quality_status") or response.quality_status
+        response.current_step = result.result.get("current_step") or response.current_step
+        response.steps = result.result.get("steps") or response.steps
+        response.warnings = result.result.get("warnings") or response.warnings
         if result.result.get("status") == "FAILED":
             response.status = "FAILED"
             response.error = result.result.get("error")
@@ -127,6 +154,8 @@ async def get_plan(plan_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
     plan_data = cached_plan_data if cached_plan_data else plan.plan_data
 
+    generation_meta = (plan_data or {}).get("generation_meta") or {}
+
     return PlanResponse(
         id=plan.id,
         user_id=plan.user_id,
@@ -134,6 +163,9 @@ async def get_plan(plan_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
         start_date=plan.start_date,
         end_date=plan.end_date,
         plan_data=plan_data,
+        mode=generation_meta.get("mode"),
+        quality_status=generation_meta.get("quality_status"),
+        warnings=generation_meta.get("warnings") or [],
     )
 
 

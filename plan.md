@@ -155,3 +155,41 @@
 - [ ] Дисклеймер на месте
 - [ ] Можно показать логи рефлексии (как агент исправлял ошибку)
 - [ ] README.md с инструкцией запуска
+
+---
+
+## Следующий спринт: Canonical Pipeline + Agent Runtime
+
+**Цель:** убрать расхождение между demo и LLM flow, сделать единый канонический pipeline и подготовить серверный переход к agent-first исполнению.
+
+### To Do
+
+- [ ] Вынести общие шаги генерации в единый backend runtime: `context -> generate -> validate -> auto-fix -> save -> shopping-list`
+- [ ] Добавить единые метаданные результата: `mode`, `quality_status`, `warnings`, `pipeline_version`
+- [ ] Разделить режимы явно: `demo`, `llm_direct`, `agent_cli`
+- [ ] Сделать `demo`-послабления явно видимыми в ответах и сохранённом `plan_data`
+- [ ] Подготовить server-side `agent_cli` path на базе текущего skill/CLI-контракта
+- [ ] Свести API-контракт `/generate-plan`, `/tasks/{id}`, `/plans/{id}` к одному формату для всех режимов
+- [ ] Убрать дублирование загрузки профиля, рецептов и сохранения плана между worker и demo pipeline
+- [ ] Протянуть `quality_status` до frontend, чтобы интерфейс различал `valid` и `partially_valid`
+- [ ] Зафиксировать fallback-поведение: что считается `FAILED`, а что `PARTIALLY_VALID`
+- [ ] Обновить README и описание архитектуры после стабилизации runtime
+
+### Тесты на спринт
+
+- [ ] Unit: retry/reflection в orchestrator
+- [ ] Unit: `partially_valid` при исчерпании retry
+- [ ] Unit: demo pipeline task state и ошибки по шагам
+- [ ] Integration: `POST /api/users` -> `POST /api/demo/generate-plan` -> `GET /api/demo/tasks/{id}`
+- [ ] Integration: `POST /api/generate-plan` -> `GET /api/tasks/{id}` -> `GET /api/plans/{id}`
+- [ ] Integration: `POST /api/recipes/batch`
+- [ ] Integration: ошибки `Plan not found`, `Plan is not ready yet`, `Demo task not found`
+- [ ] Frontend smoke: submit -> polling -> result -> shopping list
+
+### Definition of Done
+
+- [ ] Один backend pipeline считается каноническим и описан в коде и документации
+- [ ] Все режимы генерации возвращают единый набор метаданных
+- [ ] `demo` больше не маскируется под production flow
+- [ ] Есть тесты на orchestrator, demo pipeline и API-контракты
+- [ ] Есть живой сценарий ручной проверки для frontend demo

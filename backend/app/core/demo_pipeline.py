@@ -11,19 +11,18 @@ import uuid
 from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import date, timedelta
 from itertools import product
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import select
 
+from app.core.canonical_pipeline import create_plan_record, finalize_plan_record, load_user_profile
+from app.core.generation_meta import PIPELINE_STEPS, build_generation_meta
 from app.core.skills.aggregator import aggregate_shopping_list
 from app.core.skills.validator import validate_day_plan
-from app.db.models import DEFAULT_MEAL_SCHEDULE, MealPlan, MealPlanStatus, User
+from app.db.models import DEFAULT_MEAL_SCHEDULE, MealPlanStatus
 from app.db.session import async_session
 
-PIPELINE_STEPS = ["context", "generate", "validate", "auto-fix", "save", "shopping-list"]
 MAX_AUTO_FIX_ITERATIONS = 8
 
 
@@ -518,26 +517,34 @@ class DemoTaskState:
     task_id: str
     user_id: str
     days: int
+    mode: str = "demo"
     status: str = "PENDING"
+    quality_status: str = "valid"
     current_step: str | None = None
     steps: list[dict[str, Any]] | None = None
     error: str | None = None
     plan_id: str | None = None
     shopping_list: list[dict[str, Any]] | None = None
+    warnings: list[str] | None = None
 
     def __post_init__(self) -> None:
         if self.steps is None:
             self.steps = _empty_steps()
+        if self.warnings is None:
+            self.warnings = []
 
     def payload(self) -> dict[str, Any]:
         return {
             "task_id": self.task_id,
+            "mode": self.mode,
             "status": self.status,
+            "quality_status": self.quality_status,
             "current_step": self.current_step,
             "steps": deepcopy(self.steps),
             "error": self.error,
             "plan_id": self.plan_id,
             "shopping_list": deepcopy(self.shopping_list),
+            "warnings": deepcopy(self.warnings),
         }
 
 
@@ -586,31 +593,16 @@ def _finish_task(task: DemoTaskState, status: str, error: str | None = None) -> 
 
 async def run_demo_pipeline(task: DemoTaskState) -> None:
     try:
+        demo_warnings: list[str] = []
         _set_step(task, "context", status="running", message="Собираем профиль и локальный каталог.")
         async with async_session() as session:
-            result = await session.execute(select(User).where(User.id == uuid.UUID(task.user_id)))
-            user = result.scalar_one_or_none()
-            if not user:
-                raise ValueError("Профиль пользователя не найден.")
-
-            user_profile = {
-                "id": str(user.id),
-                "email": user.email,
-                "gender": user.gender.value,
-                "age": user.age,
-                "weight_kg": user.weight_kg,
-                "height_cm": user.height_cm,
-                "goal": user.goal.value,
-                "target_calories": user.target_calories,
-                "allergies": user.allergies or [],
-                "preferences": user.preferences or [],
-                "disliked_ingredients": user.disliked_ingredients or [],
-                "diseases": user.diseases or [],
-                "meal_schedule": user.meal_schedule or DEFAULT_MEAL_SCHEDULE,
-            }
+            user_profile = await load_user_profile(session, task.user_id)
             recipes, recipe_mode_message = await _load_demo_recipes(session, user_profile)
         if not recipes:
             raise RuntimeError("После фильтрации не осталось безопасных рецептов.")
+        if "soft-предпочтения" in recipe_mode_message:
+            task.quality_status = "partially_valid"
+            demo_warnings.append(recipe_mode_message)
         _set_step(
             task,
             "context",
@@ -630,6 +622,8 @@ async def run_demo_pipeline(task: DemoTaskState) -> None:
         if target_message:
             user_profile["demo_original_target_calories"] = source_target_calories
             user_profile["target_calories"] = target_calories
+            task.quality_status = "partially_valid"
+            demo_warnings.append(target_message)
             context_message = next(
                 step for step in (task.steps or []) if step["key"] == "context"
             )
@@ -825,20 +819,29 @@ async def run_demo_pipeline(task: DemoTaskState) -> None:
             "total_days": task.days,
             "daily_target_calories": target_calories,
             "days": generated_days,
+            "generation_meta": build_generation_meta(
+                mode=task.mode,
+                quality_status=task.quality_status,
+                warnings=demo_warnings,
+                extra={"steps": PIPELINE_STEPS},
+            ),
         }
+        task.warnings = demo_warnings
 
         _set_step(task, "save", status="running", message="Сохраняем план в базу.")
         async with async_session() as session:
-            plan_record = MealPlan(
-                user_id=uuid.UUID(task.user_id),
-                status=MealPlanStatus.ready,
-                start_date=date.today(),
-                end_date=date.today() + timedelta(days=task.days - 1),
-                plan_data=plan_data,
+            plan_record = await create_plan_record(
+                session,
+                user_id=task.user_id,
+                days=task.days,
+                status=MealPlanStatus.generating,
             )
-            session.add(plan_record)
-            await session.commit()
-            await session.refresh(plan_record)
+            await finalize_plan_record(
+                session,
+                plan_record=plan_record,
+                plan_data=plan_data,
+                status=MealPlanStatus.ready,
+            )
             task.plan_id = str(plan_record.id)
         _set_step(task, "save", status="completed", message=f"План сохранён: {task.plan_id}.")
 
